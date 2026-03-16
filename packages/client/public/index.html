@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1e1a14" />
+    <title>FateVI Tracker Next</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Barlow:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">FateVI Tracker Next</p>
+          <h1>Fate VI Initiative und Verwundungen</h1>
+          <p class="lede">Spielleiter-Client mit Serveranbindung, Live-Updates und Pixels-Integration.</p>
+        </div>
+        <div class="header-action-buttons">
+          <button id="refresh-state" class="ghost header-icon-button" type="button" title="Zustand aktualisieren">↻</button>
+          <div class="header-settings-group">
+            <button id="undo-action" class="ghost header-icon-button" type="button" title="Rückgängig">↶</button>
+            <button id="redo-action" class="ghost header-icon-button" type="button" title="Wiederherstellen">↷</button>
+            <details id="header-settings-menu" class="settings-menu">
+              <summary class="settings-trigger" aria-label="Einstellungen" title="Einstellungen">⚙</summary>
+              <div class="settings-dropdown header-settings-dropdown">
+                <label class="settings-option">
+                  App-Zoom
+                  <input id="font-size-slider" type="range" min="70" max="130" step="1" value="100" />
+                </label>
+                <label class="settings-option checkbox-option">
+                  Einspaltige Ansicht
+                  <input id="force-one-column" type="checkbox" />
+                </label>
+                <button id="reset-app-state" class="ghost" type="button">App resetten</button>
+                <div class="settings-submenu settings-submenu-static">
+                  <div class="settings-submenu-title">Pixels</div>
+                  <div class="settings-submenu-body">
+                    <button id="open-pixels-settings" class="ghost" type="button">Pixels Einstellungen</button>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </header>
+
+      <div class="layout-grid">
+        <div class="left-column">
+          <details class="panel collapsible" open>
+            <summary class="collapse-head">Spielleiter</summary>
+            <div class="collapse-body stack">
+              <div class="login-grid">
+                <button id="gm-login" type="button">Als Spielleiter einloggen</button>
+                <input id="gm-password" type="password" value="gm" />
+              </div>
+              <p id="login-hint" class="hint"></p>
+              <p id="session-status" class="status">Nicht eingeloggt.</p>
+            </div>
+          </details>
+
+          <details id="panel-add" class="panel collapsible">
+            <summary class="collapse-head">Charakter hinzufügen</summary>
+            <div class="collapse-body">
+              <form id="add-form" class="add-form">
+                <label>
+                  Name
+                  <input id="name" name="name" type="text" maxlength="40" required placeholder="z. B. Hauptmann der Wache" />
+                </label>
+
+                <label>
+                  Typ
+                  <select id="type" name="type">
+                    <option value="PC">SC</option>
+                    <option value="NPC">NSC</option>
+                  </select>
+                </label>
+
+                <label>
+                  INI (1-30)
+                  <input id="ini" name="ini" type="number" min="1" max="30" value="10" required />
+                </label>
+
+                <label>
+                  Ch. Vorteil
+                  <select id="special-ability" name="specialAbility">
+                    <option value="">Keiner</option>
+                    <option value="INI Archer">INI Schützen</option>
+                    <option value="INI Nimble">INI Flink</option>
+                    <option value="INI Boxer">INI Straßenschläger</option>
+                    <option value="INI Pacifist">INI Pazifist</option>
+                    <option value="INI Horsemen">INI Reiter</option>
+                  </select>
+                </label>
+
+                <button type="submit">Hinzuf.</button>
+              </form>
+            </div>
+          </details>
+
+          <details id="panel-roster" class="panel collapsible" open>
+            <summary class="collapse-head">Charaktere/NSC</summary>
+            <div class="collapse-head-tools roster-head-tools">
+              <div class="panel-toggle-group">
+                <label class="panel-toggle">
+                  <input id="toggle-all-pc-surprised" type="checkbox" />
+                  <span>Alle SC überr.</span>
+                </label>
+                <label class="panel-toggle">
+                  <input id="toggle-all-npc-surprised" type="checkbox" />
+                  <span>Alle NSC überr.</span>
+                </label>
+              </div>
+              <div class="actions">
+                <details id="character-settings-menu" class="settings-menu">
+                  <summary class="settings-trigger" aria-label="Charakter-Einstellungen" title="Charakter-Einstellungen">⚙</summary>
+                  <div class="settings-dropdown">
+                    <button id="remove-all-characters" class="ghost" type="button">Alle entfernen</button>
+                    <button id="remove-pc-characters" class="ghost" type="button">SC entfernen</button>
+                    <button id="remove-npc-characters" class="ghost" type="button">NSC entfernen</button>
+                  </div>
+                </details>
+              </div>
+            </div>
+            <div class="collapse-body">
+              <div id="characters" class="roster" aria-live="polite"></div>
+            </div>
+          </details>
+
+        </div>
+
+        <div class="right-column">
+          <details id="panel-ini" class="panel collapsible" open>
+            <summary class="collapse-head">INI Reihenfolge</summary>
+            <div class="collapse-body">
+              <div class="panel-head panel-head-right">
+                <div class="actions">
+                  <button id="start-round" type="button">Runde starten</button>
+                </div>
+              </div>
+              <p id="round-status" class="round-status">Kampfrunde: -</p>
+              <ol id="turn-order" class="tracker" aria-live="polite"></ol>
+              <div class="turn-order-footer">
+                <button id="activate-character-up" type="button">Vorheriger Char.</button>
+                <button id="activate-character-down" type="button">Nächster Char.</button>
+                <button id="turn-order-info" type="button" class="ghost" disabled>Server-autoritative INI-Reihenfolge</button>
+              </div>
+            </div>
+          </details>
+
+          <details class="panel collapsible" open>
+            <summary class="collapse-head">Logs</summary>
+            <div class="collapse-body combat-log-body">
+              <div class="panel-head panel-head-right">
+                <label class="panel-toggle">
+                  <input id="show-system-logs" type="checkbox" checked />
+                  Systemlogs anzeigen
+                </label>
+              </div>
+              <div id="combat-log" class="combat-log" aria-live="polite"></div>
+            </div>
+          </details>
+
+          <details class="panel collapsible" open>
+            <summary class="collapse-head">Pixels-Live</summary>
+            <div class="collapse-body">
+              <div class="panel-head panel-head-right">
+                <div class="actions">
+                  <button id="clear-pixels-events" class="ghost" type="button">Alte Events löschen</button>
+                </div>
+              </div>
+              <p class="hint">Serverseitig empfangene RollState-Ereignisse der überwachten Würfel.</p>
+              <ul id="pixels-monitor" class="list"></ul>
+              <ul id="pixels-events" class="list"></ul>
+            </div>
+          </details>
+
+          <details class="panel collapsible">
+            <summary class="collapse-head">Rohdaten</summary>
+            <div class="collapse-body">
+              <pre id="raw-state"></pre>
+            </div>
+          </details>
+        </div>
+      </div>
+    </main>
+
+    <dialog id="edit-character-dialog" class="edit-character-dialog">
+      <form id="edit-character-form" method="dialog" class="edit-character-form">
+        <h3 id="edit-character-title">Charakter bearbeiten</h3>
+        <label>
+          Name
+          <input id="edit-name" name="name" type="text" maxlength="40" required />
+        </label>
+        <label>
+          Typ
+          <select id="edit-type" name="type">
+            <option value="PC">SC</option>
+            <option value="NPC">NSC</option>
+          </select>
+        </label>
+        <label>
+          INI
+          <input id="edit-ini" name="ini" type="number" min="1" max="30" required />
+        </label>
+        <label>
+          Ch. Vorteil
+          <select id="edit-special-ability" name="specialAbility">
+            <option value="">Keiner</option>
+            <option value="INI Archer">INI Schützen</option>
+            <option value="INI Nimble">INI Flink</option>
+            <option value="INI Boxer">INI Straßenschläger</option>
+            <option value="INI Pacifist">INI Pazifist</option>
+            <option value="INI Horsemen">INI Reiter</option>
+          </select>
+        </label>
+        <label>
+          INI-Wurf
+          <select id="edit-initiative-roll-mode" name="initiativeRollMode">
+            <option value="automatic">Automatisch</option>
+            <option value="manual">Manuell</option>
+            <option value="pixels">Pixels</option>
+          </select>
+        </label>
+        <div class="dialog-actions">
+          <button id="edit-character-cancel" type="button" class="ghost">Abbrechen</button>
+          <button id="edit-character-save" type="submit">Speichern</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="pixels-settings-dialog" class="pixels-settings-dialog">
+      <form method="dialog" class="pixels-settings-form">
+        <div class="pixels-settings-header">
+          <h3>Pixels Einstellungen</h3>
+          <button id="pixels-settings-close" class="ghost" type="button" title="Schließen">x</button>
+        </div>
+
+        <details class="panel collapsible pixels-settings-section" open>
+          <summary class="collapse-head">BLE-Geräte suchen</summary>
+          <div class="collapse-body">
+            <div class="actions">
+              <button id="bluetooth-scan" type="button">BLE-Geraete suchen</button>
+            </div>
+            <p class="hint">Hier nur suchen und merken. Verbinden, identifizieren und testen erfolgt bei den gemerkten Pixels.</p>
+            <ul id="bluetooth-devices" class="list"></ul>
+          </div>
+        </details>
+
+        <details class="panel collapsible pixels-settings-section" open>
+          <summary class="collapse-head">Gemerkte Pixels</summary>
+          <div class="collapse-body">
+            <div class="actions">
+              <button id="pixels-refresh" type="button">Gemerkte Pixels aktualisieren</button>
+            </div>
+            <p class="hint">Der Server merkt sich Name und MAC-Adresse und zeigt hier nur die gemerkten Würfel.</p>
+            <ul id="pixels-devices" class="list"></ul>
+          </div>
+        </details>
+
+        <details class="panel collapsible pixels-settings-section" open>
+          <summary class="collapse-head">Zuordnungen</summary>
+          <div class="collapse-body">
+            <label>
+              Pixels-Modus
+              <select id="pixels-mode-select">
+                <option value="pc-set-3">Eigene 3er-Sets</option>
+                <option value="shared-set-3">Gemeinsames 3er-Set</option>
+                <option value="pc-single-3x">Ein Pixel, drei Würfe</option>
+              </select>
+            </label>
+            <p id="pixels-mode-help" class="hint"></p>
+            <div id="pixels-character-assignments" class="stack"></div>
+          </div>
+        </details>
+      </form>
+    </dialog>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "@fatevi/server",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "http.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@fatevi/rules": "0.1.0"
+  }
+}

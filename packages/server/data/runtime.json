@@ -1,0 +1,656 @@
+{
+  "state": {
+    "characters": [
+      {
+        "id": "npc-bandit",
+        "name": "Bandit",
+        "type": "NPC",
+        "initiativeBase": 30,
+        "ownerUserId": null,
+        "surprised": false,
+        "incapacitated": false,
+        "lastRoll": 10,
+        "critBonusRoll": null,
+        "totalInitiative": 40,
+        "unfreeDefensePenalty": 0,
+        "paradeClickCount": 0,
+        "moveActionUsed": false,
+        "specialAbility": "INI Boxer",
+        "initiativeRollMode": "automatic",
+        "specialAbilityActive": false,
+        "dazedUntilRound": 19
+      },
+      {
+        "id": "npc-karl-oby1",
+        "name": "Karl",
+        "type": "NPC",
+        "initiativeBase": 10,
+        "specialAbility": null,
+        "ownerUserId": null,
+        "surprised": false,
+        "incapacitated": false,
+        "dazedUntilRound": null,
+        "damageMonitorMarks": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "unfreeDefensePenalty": 0,
+        "paradeClickCount": 0,
+        "lastRoll": 10,
+        "critBonusRoll": null,
+        "totalInitiative": 20,
+        "moveActionUsed": false,
+        "specialAbilityActive": false
+      },
+      {
+        "id": "pc-karli-u7js",
+        "name": "Karli",
+        "type": "PC",
+        "initiativeBase": 10,
+        "specialAbility": null,
+        "ownerUserId": null,
+        "surprised": false,
+        "incapacitated": false,
+        "dazedUntilRound": null,
+        "damageMonitorMarks": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "unfreeDefensePenalty": 0,
+        "paradeClickCount": 0,
+        "lastRoll": 12,
+        "critBonusRoll": null,
+        "totalInitiative": 22,
+        "moveActionUsed": false,
+        "initiativeRollMode": "automatic",
+        "specialAbilityActive": false
+      },
+      {
+        "id": "npc-grumbsch-1wp5",
+        "name": "Grumbsch",
+        "type": "NPC",
+        "initiativeBase": 10,
+        "specialAbility": "INI Nimble",
+        "ownerUserId": null,
+        "surprised": false,
+        "incapacitated": false,
+        "dazedUntilRound": null,
+        "damageMonitorMarks": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "unfreeDefensePenalty": 0,
+        "paradeClickCount": 0,
+        "lastRoll": 14,
+        "critBonusRoll": null,
+        "totalInitiative": 24,
+        "moveActionUsed": false,
+        "specialAbilityActive": false
+      }
+    ],
+    "turnEntries": [
+      {
+        "id": "npc-bandit:bonus",
+        "characterId": "npc-bandit",
+        "turnType": "Bonus",
+        "groupInitiative": 40,
+        "critical": null,
+        "used": false,
+        "actionIndex": 0
+      },
+      {
+        "id": "npc-bandit:main",
+        "characterId": "npc-bandit",
+        "turnType": "Main",
+        "groupInitiative": 40,
+        "critical": null,
+        "used": false,
+        "actionIndex": 1
+      },
+      {
+        "id": "npc-bandit:move",
+        "characterId": "npc-bandit",
+        "turnType": "Move",
+        "groupInitiative": 40,
+        "critical": null,
+        "used": false,
+        "actionIndex": 2
+      },
+      {
+        "id": "npc-grumbsch-1wp5:main",
+        "characterId": "npc-grumbsch-1wp5",
+        "turnType": "Main",
+        "groupInitiative": 24,
+        "critical": null,
+        "used": false,
+        "actionIndex": 0
+      },
+      {
+        "id": "npc-grumbsch-1wp5:move",
+        "characterId": "npc-grumbsch-1wp5",
+        "turnType": "Move",
+        "groupInitiative": 24,
+        "critical": null,
+        "used": false,
+        "actionIndex": 1
+      },
+      {
+        "id": "pc-karli-u7js:main",
+        "characterId": "pc-karli-u7js",
+        "turnType": "Main",
+        "groupInitiative": 22,
+        "critical": null,
+        "used": false,
+        "actionIndex": 0
+      },
+      {
+        "id": "pc-karli-u7js:move",
+        "characterId": "pc-karli-u7js",
+        "turnType": "Move",
+        "groupInitiative": 22,
+        "critical": null,
+        "used": false,
+        "actionIndex": 1
+      },
+      {
+        "id": "npc-karl-oby1:main",
+        "characterId": "npc-karl-oby1",
+        "turnType": "Main",
+        "groupInitiative": 20,
+        "critical": null,
+        "used": false,
+        "actionIndex": 0
+      },
+      {
+        "id": "npc-karl-oby1:move",
+        "characterId": "npc-karl-oby1",
+        "turnType": "Move",
+        "groupInitiative": 20,
+        "critical": null,
+        "used": false,
+        "actionIndex": 1
+      }
+    ],
+    "round": 19,
+    "activeCharacterId": "npc-bandit",
+    "pendingInputs": []
+  },
+  "sessions": [
+    {
+      "token": "d35af104-a80f-4b8b-8e77-b8e904f23b72",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "df267d35-93e6-4e83-860f-d557c6f9a707",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "a18905d2-46ac-4d3c-ae22-b47f12ae50fc",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "e6eaaf02-2ac5-4ec4-913d-207ea1ae1413",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "2c4c7836-ca8e-42ac-904a-2458707c1803",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "7aedfbc4-f0d5-41c8-b23e-bea857381094",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "027f1817-5d90-4799-81c8-aa952d2c5d72",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "0664e769-cbf2-4163-a841-19dbc033227c",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "7ef36979-48f1-48ea-b53b-0ca048d204d1",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "ce0a6efe-e7bc-4d36-9350-621376084ecd",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "472a4f62-cc37-4a2b-9569-3da8bf4a29cc",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "2ea682c1-0c42-4eec-92cd-1ebcf98e92a0",
+      "session": {
+        "userId": "user-aria",
+        "role": "player",
+        "controlledCharacterId": "pc-aria"
+      }
+    },
+    {
+      "token": "26c44ccd-4024-4261-9688-abe467be49f3",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "509b44c7-e622-4430-9ed2-b6b23a72f3b0",
+      "session": {
+        "userId": "user-aria",
+        "role": "player",
+        "controlledCharacterId": "pc-aria"
+      }
+    },
+    {
+      "token": "85e43322-5e72-4efc-8720-b889dc28984d",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "d5811c32-75d4-498a-931c-c200405dbf25",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "bc5ab81f-d127-47bf-b2d0-e915e292e70c",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "00c55031-d1ff-46d8-ae3e-8fde3c1836d3",
+      "session": {
+        "userId": "user-aria",
+        "role": "player",
+        "controlledCharacterId": "pc-aria"
+      }
+    },
+    {
+      "token": "302614a3-d7af-4e7e-9c6c-b17e9dd2bfee",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "2adcb6e7-eb69-4d46-844a-03c5bbb8cbe6",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "1dfa816b-213f-4a3c-aa2b-fd822632c2d1",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "e6f8b882-7e41-411d-b3b3-8bdea1db41bf",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "6bd4df07-d192-43ef-a811-bc3c738adb1b",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "ebc02a2c-a0e1-461c-a8bd-635f3e48cf6e",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "592ef17b-a091-46b7-9fde-880e5f4f2704",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "32964d5a-c9e1-4bd9-8ab9-c3921e4df10e",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "bde2b17a-8041-452a-8a03-9bea365e73d6",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "3599785c-5937-40e2-a6f4-edff9e5de22b",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "44013295-a0e0-4a7c-afdb-4b0a08925bb8",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "d5f6b899-0a1a-42c4-9fdb-2e92a1ac1f4f",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "3b9ff789-ce79-4ea5-95a0-d038b21c79e7",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "72c0579d-b90b-4ec6-ade7-baeaa08be401",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "0a0eb54e-e1f1-4b99-9a05-4684d2d47832",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "2698cf16-1664-4a28-8402-63e28adc233b",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "e637c8c7-89a7-4a59-98fa-9b9c5832cd06",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "5760035f-5aea-4b4d-94d6-bed142075019",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "1492d5d5-cc0e-4d91-a877-4a7512f159ac",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "9e94fc63-8ae3-44b4-861d-818d0030d74a",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "12141317-de58-4fcd-a188-1f75e63b4250",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "8e5d6bfa-ef89-4bf4-96e2-402819f7a68c",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "96d2c502-116d-4d51-8529-481c6fbe9bde",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "5c97392a-0be6-4b75-b28d-1da990e1c87e",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "cbed2137-d2d8-4475-92fb-b0024fa904fe",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "b955b78b-7273-4190-926d-1b517c9d356c",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "19c650bf-0933-4fca-8f72-c6fd636f7410",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    },
+    {
+      "token": "a9af98db-3355-4556-8c3e-2d99dbcdbc33",
+      "session": {
+        "userId": "gm",
+        "role": "gm",
+        "controlledCharacterId": null
+      }
+    }
+  ],
+  "pixelsAssignments": [
+    {
+      "address": "E0:5C:84:70:34:4A",
+      "characterId": "pc-aria",
+      "slot": 1
+    },
+    {
+      "address": "EC:F4:6D:57:89:5E",
+      "characterId": "pc-aria",
+      "slot": 2
+    },
+    {
+      "address": "D6:5A:86:EC:4E:70",
+      "characterId": "pc-aria",
+      "slot": 3
+    },
+    {
+      "address": "E8:A3:82:1E:A7:CA",
+      "characterId": "pc-borin",
+      "slot": 1
+    },
+    {
+      "address": "C8:68:E7:DB:E1:FB",
+      "characterId": "pc-borin",
+      "slot": 2
+    },
+    {
+      "address": "C7:BC:E1:63:23:01",
+      "characterId": "pc-borin",
+      "slot": 3
+    }
+  ],
+  "selectedPixelsDevices": [
+    {
+      "address": "E0:5C:84:70:34:4A",
+      "name": "W6A1"
+    },
+    {
+      "address": "EC:F4:6D:57:89:5E",
+      "name": "W6A2"
+    },
+    {
+      "address": "D6:5A:86:EC:4E:70",
+      "name": "W6A3"
+    },
+    {
+      "address": "E8:A3:82:1E:A7:CA",
+      "name": "W6N1"
+    },
+    {
+      "address": "C8:68:E7:DB:E1:FB",
+      "name": "W6N2"
+    },
+    {
+      "address": "C7:BC:E1:63:23:01",
+      "name": "W6N3"
+    }
+  ],
+  "pixelsConfig": {
+    "mode": "shared-set-3",
+    "sharedSet": [
+      null,
+      null,
+      null
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@fatevi/rules": [
+        "../rules/src/index.ts"
+      ],
+      "@fatevi/server": [
+        "../server/src/index.ts"
+      ]
+    }
+  },
+  "references": [
+    {
+      "path": "../rules"
+    },
+    {
+      "path": "../server"
+    }
+  ],
+  "include": [
+    "src"
+  ]
+}
