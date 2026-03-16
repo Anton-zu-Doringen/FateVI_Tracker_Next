@@ -4,6 +4,7 @@ export interface Session {
   userId: string;
   role: Role;
   controlledCharacterId: string | null;
+  displayName?: string;
 }
 
 export function canExecuteCommand(session: Session, state: CombatState, command: Command): boolean {
@@ -13,10 +14,15 @@ export function canExecuteCommand(session: Session, state: CombatState, command:
 
   switch (command.type) {
     case "start-round":
+    case "end-combat":
+    case "reorder-characters":
+    case "reorder-turn-groups":
       return false;
     case "add-character":
     case "update-character":
     case "remove-character":
+    case "add-event":
+    case "remove-event":
     case "assign-character-owner":
       return false;
     case "toggle-surprised":

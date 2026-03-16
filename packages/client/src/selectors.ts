@@ -1,6 +1,11 @@
 import type { PendingInput } from "@fatevi/rules";
 import type { PlayerView } from "@fatevi/server";
 
+type InitiativeRollInput = PendingInput & {
+  type: "roll";
+  request: { kind: "initiative-roll"; characterId: string; dice: "3d6" };
+};
+
 export interface CharacterUiState {
   characterId: string;
   isActive: boolean;
@@ -8,8 +13,14 @@ export interface CharacterUiState {
   canSubmitInitiativeRoll: boolean;
 }
 
-export function getPendingInitiativeInputs(view: PlayerView): PendingInput[] {
-  return view.pendingInputs.filter((input) => input.type === "roll" && input.request.kind === "initiative-roll");
+function isInitiativeRollInput(
+  input: PendingInput
+): input is InitiativeRollInput {
+  return input.type === "roll" && input.request.kind === "initiative-roll";
+}
+
+export function getPendingInitiativeInputs(view: PlayerView): InitiativeRollInput[] {
+  return view.pendingInputs.filter(isInitiativeRollInput);
 }
 
 export function getCharacterUiState(view: PlayerView, characterId: string): CharacterUiState {

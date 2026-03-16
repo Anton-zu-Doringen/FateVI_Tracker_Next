@@ -1,25 +1,35 @@
 import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { createCharacter } from "@fatevi/rules";
 import { TrackerServer } from "./dist/server.js";
 import { connectBluetoothDevice, disconnectBluetoothDevice, listBluetoothDevices, scanBluetoothDevices } from "./bluetooth.js";
 import { blinkPixelsDevice, createPixelsMonitorManager, forgetPixelsGatt, identifyPixelsDevice, listPixelsDevices } from "./pixels.js";
 
 const GM_PASSWORD = process.env.FATEVI_GM_PASSWORD ?? "gm";
+const DEFAULT_GM_NAME = process.env.FATEVI_GM_NAME ?? "Spielleiter";
 const PORT = Number(process.env.PORT || 8787);
+const HOST = process.env.HOST || "127.0.0.1";
 const serverState = new TrackerServer();
 const sessions = new Map();
 const eventStreams = new Map();
 const pixelsAssignments = new Map();
 const selectedPixelsDevices = new Map();
 const pendingPixelRolls = new Map();
+const gmAccounts = new Map();
+const gmLibraries = new Map();
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
 const clientPublicDir = path.resolve(currentDir, "../client/public");
 const dataDir = path.resolve(currentDir, "data");
 const runtimeFile = path.join(dataDir, "runtime.json");
+const librariesDir = path.join(dataDir, "libraries");
+const execFileAsync = promisify(execFile);
 const PIXELS_SLOT_VALUES = [1, 2, 3];
 const PIXELS_ROLL_DEBOUNCE_MS = 1200;
 const PIXELS_MODE = {
@@ -52,6 +62,13 @@ async function saveRuntime() {
   const payload = {
     state: serverState.getState(),
     sessions: Array.from(sessions.entries()).map(([token, session]) => ({ token, session })),
+    gmAccounts: Array.from(gmAccounts.values()).map((account) => ({
+      id: account.id,
+      name: account.name,
+      salt: account.salt,
+      passwordHash: account.passwordHash,
+      createdAt: account.createdAt
+    })),
     pixelsAssignments: getAssignmentsPayload(),
     selectedPixelsDevices: getSelectedPixelsPayload(),
     pixelsConfig: getPixelsConfigPayload()
@@ -70,6 +87,37 @@ async function loadRuntime() {
     for (const entry of payload?.sessions || []) {
       if (entry?.token && entry?.session) {
         sessions.set(entry.token, entry.session);
+      }
+    }
+    gmAccounts.clear();
+    for (const account of payload?.gmAccounts || []) {
+      if (!account?.id || !account?.name || !account?.salt || !account?.passwordHash) {
+        continue;
+      }
+      gmAccounts.set(account.id, {
+        id: account.id,
+        name: account.name,
+        salt: account.salt,
+        passwordHash: account.passwordHash,
+        createdAt: account.createdAt || new Date().toISOString()
+      });
+    }
+    gmLibraries.clear();
+    ensureDefaultGmAccount();
+    for (const accountId of gmAccounts.keys()) {
+      await loadGmLibraryIntoCache(accountId);
+    }
+    await migrateLegacyLibraries(payload?.gmLibraries || []);
+    const fallbackAccount = gmAccounts.values().next().value ?? null;
+    if (fallbackAccount) {
+      for (const [token, session] of sessions.entries()) {
+        if (session?.role === "gm" && (!session.userId || session.userId === "gm" || !gmAccounts.has(session.userId))) {
+          sessions.set(token, {
+            ...session,
+            userId: fallbackAccount.id,
+            displayName: fallbackAccount.name
+          });
+        }
       }
     }
     pixelsAssignments.clear();
@@ -103,8 +151,383 @@ async function loadRuntime() {
   }
 }
 
+function hashPassword(password, salt) {
+  return scryptSync(String(password), String(salt), 64).toString("hex");
+}
+
+function createAccountRecord(name, password) {
+  const salt = randomBytes(16).toString("hex");
+  return {
+    id: `gm-${randomUUID()}`,
+    name: String(name).trim(),
+    salt,
+    passwordHash: hashPassword(password, salt),
+    createdAt: new Date().toISOString()
+  };
+}
+
+function normalizeLibraryName(value, maxLength = 60) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, maxLength);
+}
+
+function normalizeAccountStorageKey(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return normalized || "sl-account";
+}
+
+function createEmptyLibrary() {
+  return { snapshots: [], groups: [] };
+}
+
+function sanitizeLibraryEntries(entries) {
+  return Array.isArray(entries) ? entries : [];
+}
+
+function getAccountRecord(accountId) {
+  return gmAccounts.get(accountId) ?? null;
+}
+
+function getLibraryPaths(accountId) {
+  const account = getAccountRecord(accountId);
+  const storageKey = normalizeAccountStorageKey(account?.name || accountId);
+  const accountDir = path.join(librariesDir, storageKey);
+  return {
+    accountDir,
+    snapshotsFile: path.join(accountDir, "snapshots.json"),
+    groupsFile: path.join(accountDir, "groups.json")
+  };
+}
+
+function getAccountLibraryBundleName(accountId) {
+  const account = getAccountRecord(accountId);
+  return normalizeAccountStorageKey(account?.name || accountId);
+}
+
+async function readLibraryFile(filePath) {
+  try {
+    const content = await readFile(filePath, "utf8");
+    const payload = JSON.parse(content);
+    return Array.isArray(payload) ? payload : [];
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function loadGmLibraryIntoCache(accountId) {
+  const { snapshotsFile, groupsFile } = getLibraryPaths(accountId);
+  gmLibraries.set(accountId, {
+    snapshots: sanitizeLibraryEntries(await readLibraryFile(snapshotsFile)),
+    groups: sanitizeLibraryEntries(await readLibraryFile(groupsFile))
+  });
+  return ensureGmLibrary(accountId);
+}
+
+async function saveGmLibrary(accountId) {
+  const library = ensureGmLibrary(accountId);
+  const { accountDir, snapshotsFile, groupsFile } = getLibraryPaths(accountId);
+  await mkdir(accountDir, { recursive: true });
+  await writeFile(snapshotsFile, JSON.stringify(sanitizeLibraryEntries(library.snapshots), null, 2), "utf8");
+  await writeFile(groupsFile, JSON.stringify(sanitizeLibraryEntries(library.groups), null, 2), "utf8");
+}
+
+async function exportGmLibraryArchive(accountId) {
+  const library = ensureGmLibrary(accountId);
+  const bundleName = getAccountLibraryBundleName(accountId);
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "fatevi-library-export-"));
+  const bundleDir = path.join(tempRoot, bundleName);
+  const archivePath = path.join(tempRoot, `${bundleName}.zip`);
+  try {
+    await mkdir(bundleDir, { recursive: true });
+    await writeFile(
+      path.join(bundleDir, "account.json"),
+      JSON.stringify(
+        {
+          accountName: getAccountRecord(accountId)?.name || bundleName,
+          exportedAt: new Date().toISOString(),
+          version: 1
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await writeFile(path.join(bundleDir, "snapshots.json"), JSON.stringify(sanitizeLibraryEntries(library.snapshots), null, 2), "utf8");
+    await writeFile(path.join(bundleDir, "groups.json"), JSON.stringify(sanitizeLibraryEntries(library.groups), null, 2), "utf8");
+    await execFileAsync("zip", ["-qr", archivePath, bundleName], { cwd: tempRoot });
+    const archiveBuffer = await readFile(archivePath);
+    return {
+      fileName: `${bundleName}.zip`,
+      archiveBuffer
+    };
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function mergeLibraryEntries(existingEntries, importedEntries, getKey) {
+  const merged = [];
+  const importedByKey = new Map();
+  for (const entry of sanitizeLibraryEntries(importedEntries)) {
+    importedByKey.set(getKey(entry), entry);
+  }
+  for (const entry of sanitizeLibraryEntries(existingEntries)) {
+    const key = getKey(entry);
+    if (importedByKey.has(key)) {
+      merged.push(importedByKey.get(key));
+      importedByKey.delete(key);
+    } else {
+      merged.push(entry);
+    }
+  }
+  for (const entry of importedByKey.values()) {
+    merged.push(entry);
+  }
+  return merged;
+}
+
+async function importGmLibraryArchive(accountId, archiveBuffer) {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "fatevi-library-import-"));
+  const archivePath = path.join(tempRoot, "import.zip");
+  const extractDir = path.join(tempRoot, "extract");
+  try {
+    await mkdir(extractDir, { recursive: true });
+    await writeFile(archivePath, archiveBuffer);
+    await execFileAsync("unzip", ["-oq", archivePath, "-d", extractDir]);
+    const libraryRoot = await findImportedLibraryRoot(extractDir);
+    const extractedEntries = await readFile(path.join(libraryRoot, "snapshots.json"), "utf8").catch(() => "[]");
+    const extractedGroups = await readFile(path.join(libraryRoot, "groups.json"), "utf8").catch(() => "[]");
+    const importedSnapshots = sanitizeLibraryEntries(JSON.parse(extractedEntries));
+    const importedGroups = sanitizeLibraryEntries(JSON.parse(extractedGroups));
+    const library = ensureGmLibrary(accountId);
+    library.snapshots = mergeLibraryEntries(
+      library.snapshots,
+      importedSnapshots,
+      (entry) => String(entry?.name || "").trim().toLowerCase()
+    ).slice(0, 100);
+    library.groups = mergeLibraryEntries(
+      library.groups,
+      importedGroups,
+      (entry) => `${String(entry?.type || "").trim().toLowerCase()}::${String(entry?.name || "").trim().toLowerCase()}`
+    ).slice(0, 200);
+    await saveGmLibrary(accountId);
+    return {
+      importedSnapshots: importedSnapshots.length,
+      importedGroups: importedGroups.length
+    };
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function findImportedLibraryRoot(extractDir) {
+  const directCandidates = [extractDir];
+  const topLevelEntries = await readdir(extractDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of topLevelEntries) {
+    if (entry.isDirectory()) {
+      directCandidates.push(path.join(extractDir, entry.name));
+    }
+  }
+  for (const root of directCandidates) {
+    try {
+      const snapshots = await readFile(path.join(root, "snapshots.json"), "utf8");
+      JSON.parse(snapshots);
+      return root;
+    } catch {
+      // keep looking
+    }
+    const nestedEntries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    for (const entry of nestedEntries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const nestedRoot = path.join(root, entry.name);
+      try {
+        const snapshots = await readFile(path.join(nestedRoot, "snapshots.json"), "utf8");
+        JSON.parse(snapshots);
+        return nestedRoot;
+      } catch {
+        // keep looking
+      }
+    }
+  }
+  throw new Error("keine gültige Bibliotheksstruktur in ZIP gefunden");
+}
+
+async function migrateLegacyLibraries(legacyLibraries = []) {
+  for (const entry of legacyLibraries) {
+    if (!entry?.accountId) {
+      continue;
+    }
+    const library = ensureGmLibrary(entry.accountId);
+    const hasExistingData = (library.snapshots || []).length > 0 || (library.groups || []).length > 0;
+    if (hasExistingData) {
+      continue;
+    }
+    const migratedLibrary = {
+      snapshots: sanitizeLibraryEntries(entry.snapshots),
+      groups: sanitizeLibraryEntries(entry.groups)
+    };
+    if (!migratedLibrary.snapshots.length && !migratedLibrary.groups.length) {
+      continue;
+    }
+    gmLibraries.set(entry.accountId, migratedLibrary);
+    await saveGmLibrary(entry.accountId);
+  }
+}
+
+function ensureGmLibrary(accountId) {
+  if (!gmLibraries.has(accountId)) {
+    gmLibraries.set(accountId, createEmptyLibrary());
+  }
+  return gmLibraries.get(accountId);
+}
+
+function getLibraryPayload(accountId) {
+  const library = ensureGmLibrary(accountId);
+  return {
+    snapshots: (library.snapshots || []).map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      characterCount: Array.isArray(entry.state?.characters) ? entry.state.characters.length : 0,
+      round: Number(entry.state?.round) || 0
+    })),
+    groups: (library.groups || []).map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      type: entry.type,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      characterCount: Array.isArray(entry.characters) ? entry.characters.length : 0
+    }))
+  };
+}
+
+function createPixelsSnapshotState() {
+  return {
+    selectedDevices: getSelectedPixelsPayload(),
+    assignments: getAssignmentsPayload(),
+    config: getPixelsConfigPayload()
+  };
+}
+
+function applyPixelsSnapshotState(snapshotPixelsState) {
+  selectedPixelsDevices.clear();
+  for (const entry of snapshotPixelsState?.selectedDevices || []) {
+    if (!entry?.address) {
+      continue;
+    }
+    selectedPixelsDevices.set(entry.address, {
+      address: entry.address,
+      name: entry.name || entry.address
+    });
+  }
+
+  pixelsAssignments.clear();
+  for (const entry of snapshotPixelsState?.assignments || []) {
+    if (!entry?.address || typeof entry.characterId !== "string") {
+      continue;
+    }
+    const normalizedSlot = normalizeAssignmentSlot(entry.slot);
+    pixelsAssignments.set(entry.address, {
+      characterId: entry.characterId,
+      slot: normalizedSlot ?? findFirstFreeSlot(entry.characterId) ?? 1
+    });
+  }
+
+  pixelsConfig.mode = normalizePixelsMode(snapshotPixelsState?.config?.mode);
+  pixelsConfig.sharedSet = normalizeSharedSet(snapshotPixelsState?.config?.sharedSet);
+}
+
+function createCharacterId(name, type) {
+  const base = String(name || "charakter")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24) || "charakter";
+  return `${type === "NPC" ? "npc" : "pc"}-${base}-${randomUUID().slice(0, 4)}`;
+}
+
+function createGroupCharacterTemplate(character) {
+  return {
+    name: String(character?.name || "Charakter").slice(0, 40),
+    type: character?.type === "NPC" ? "NPC" : "PC",
+    hidden: Boolean(character?.hidden),
+    initiativeBase: Math.max(1, Math.min(30, Math.round(Number(character?.initiativeBase) || 10))),
+    specialAbility: character?.specialAbility || null,
+    initiativeRollMode: character?.initiativeRollMode || null,
+    ownerUserId: character?.type === "PC" ? character?.ownerUserId || null : null
+  };
+}
+
+function instantiateGroupCharacters(group) {
+  return (group.characters || []).map((template) =>
+    createCharacter({
+      id: createCharacterId(template.name, template.type),
+      name: template.name,
+      type: template.type === "NPC" ? "NPC" : "PC",
+      hidden: Boolean(template.hidden),
+      initiativeBase: Math.max(1, Math.min(30, Math.round(Number(template.initiativeBase) || 10))),
+      specialAbility: template.specialAbility || null,
+      initiativeRollMode: template.initiativeRollMode || null,
+      ownerUserId: template.type === "PC" ? template.ownerUserId || null : null
+    })
+  );
+}
+
+function verifyPassword(account, password) {
+  const expected = Buffer.from(String(account.passwordHash), "hex");
+  const actual = Buffer.from(hashPassword(password, account.salt), "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function normalizeAccountName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 40);
+}
+
+function getAccountByName(name) {
+  const normalizedName = normalizeAccountName(name).toLowerCase();
+  return (
+    Array.from(gmAccounts.values()).find((account) => normalizeAccountName(account.name).toLowerCase() === normalizedName) ?? null
+  );
+}
+
+function ensureDefaultGmAccount() {
+  if (gmAccounts.size > 0) {
+    return;
+  }
+  const account = createAccountRecord(DEFAULT_GM_NAME, GM_PASSWORD);
+  gmAccounts.set(account.id, account);
+  ensureGmLibrary(account.id);
+}
+
 function getGmSession() {
-  return { userId: "gm", role: "gm", controlledCharacterId: null };
+  const firstAccount = gmAccounts.values().next().value;
+  return {
+    userId: firstAccount?.id || "gm",
+    role: "gm",
+    controlledCharacterId: null,
+    displayName: firstAccount?.name || DEFAULT_GM_NAME
+  };
 }
 
 function normalizePixelsMode(value) {
@@ -275,6 +698,22 @@ async function triggerWaitLedEffectsForPendingRolls() {
   });
 }
 
+async function startPixelsWatchesForPendingRolls() {
+  const addresses = [
+    ...new Set(Array.from(pendingPixelRolls.values()).flatMap((entry) => entry.assignedAddresses || []).filter(Boolean))
+  ];
+  for (const address of addresses) {
+    try {
+      await pixelsMonitor.watchDevice(address);
+    } catch (error) {
+      broadcastPixelsEvent("pixels-watch-auto-error", {
+        address,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+}
+
 async function triggerCriticalLedEffect(characterId, total) {
   const critical = computeCriticalState(total);
   if (!critical) {
@@ -423,6 +862,14 @@ async function readJsonBody(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+async function readRequestBuffer(request) {
+  const chunks = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 function getBearerToken(request) {
   const authHeader = request.headers.authorization;
   if (!authHeader) {
@@ -520,7 +967,10 @@ function getBootstrap() {
   const state = serverState.getState();
   return {
     appName: "FateVI Tracker Next",
-    gmLoginHint: "Passwort ist standardmäßig 'gm' und per FATEVI_GM_PASSWORD änderbar.",
+    gmLoginHint:
+      gmAccounts.size > 0
+        ? `${gmAccounts.size} SL-Account${gmAccounts.size === 1 ? "" : "s"} verfügbar. Standardaccount: ${DEFAULT_GM_NAME}.`
+        : "Noch kein SL-Account vorhanden.",
     playerCharacters: state.characters
       .filter((character) => character.type === "PC" && character.ownerUserId)
       .map((character) => ({
@@ -534,11 +984,14 @@ function getBootstrap() {
 async function handleLogin(request, response) {
   const body = await readJsonBody(request);
   if (body.role === "gm") {
-    if (body.password !== GM_PASSWORD) {
-      sendError(response, 401, "invalid gm password");
+    const name = normalizeAccountName(body.name);
+    const password = String(body.password || "");
+    const account = getAccountByName(name);
+    if (!account || !verifyPassword(account, password)) {
+      sendError(response, 401, "invalid gm credentials");
       return;
     }
-    const session = { userId: "gm", role: "gm", controlledCharacterId: null };
+    const session = { userId: account.id, role: "gm", controlledCharacterId: null, displayName: account.name };
     const token = randomUUID();
     sessions.set(token, session);
     await saveRuntime();
@@ -566,6 +1019,313 @@ async function handleLogin(request, response) {
   }
 
   sendError(response, 400, "unsupported role");
+}
+
+async function handleLogout(request, response) {
+  const token = getBearerToken(request);
+  if (!token) {
+    sendError(response, 401, "missing or invalid session");
+    return;
+  }
+  sessions.delete(token);
+  const stream = eventStreams.get(token);
+  if (stream) {
+    stream.end();
+    eventStreams.delete(token);
+  }
+  await saveRuntime();
+  sendJson(response, 200, { ok: true });
+}
+
+async function handleAccountRegister(request, response) {
+  const body = await readJsonBody(request);
+  const name = normalizeAccountName(body.name);
+  const password = String(body.password || "");
+  if (!name) {
+    sendError(response, 400, "account name required");
+    return;
+  }
+  if (password.length < 4) {
+    sendError(response, 400, "password must be at least 4 characters");
+    return;
+  }
+  if (getAccountByName(name)) {
+    sendError(response, 400, "account name already exists");
+    return;
+  }
+  const account = createAccountRecord(name, password);
+  gmAccounts.set(account.id, account);
+  ensureGmLibrary(account.id);
+  await saveGmLibrary(account.id);
+  await saveRuntime();
+  sendJson(response, 200, { account: { id: account.id, name: account.name, role: "gm", createdAt: account.createdAt } });
+}
+
+async function handleAccountInfo(request, response) {
+  const session = requireGmSession(request, response);
+  if (!session) {
+    return;
+  }
+  const account = gmAccounts.get(session.userId);
+  if (!account) {
+    sendError(response, 404, "account not found");
+    return;
+  }
+  sendJson(response, 200, {
+    account: {
+      id: account.id,
+      name: account.name,
+      role: "gm",
+      createdAt: account.createdAt
+    }
+  });
+}
+
+async function handleAccountPasswordUpdate(request, response) {
+  const session = requireGmSession(request, response);
+  if (!session) {
+    return;
+  }
+  const account = gmAccounts.get(session.userId);
+  if (!account) {
+    sendError(response, 404, "account not found");
+    return;
+  }
+  const body = await readJsonBody(request);
+  const currentPassword = String(body.currentPassword || "");
+  const newPassword = String(body.newPassword || "");
+  if (!verifyPassword(account, currentPassword)) {
+    sendError(response, 401, "current password invalid");
+    return;
+  }
+  if (newPassword.length < 4) {
+    sendError(response, 400, "new password must be at least 4 characters");
+    return;
+  }
+  const updatedAccount = createAccountRecord(account.name, newPassword);
+  gmAccounts.set(account.id, {
+    ...account,
+    salt: updatedAccount.salt,
+    passwordHash: updatedAccount.passwordHash
+  });
+  await saveRuntime();
+  sendJson(response, 200, { ok: true });
+}
+
+async function handleLibraryList(request, response) {
+  const session = requireGmSession(request, response);
+  if (!session) {
+    return;
+  }
+  sendJson(response, 200, { library: getLibraryPayload(session.userId) });
+}
+
+async function handleLibraryExport(request, response) {
+  const session = requireGmSession(request, response);
+  if (!session) {
+    return;
+  }
+  const { fileName, archiveBuffer } = await exportGmLibraryArchive(session.userId);
+  response.writeHead(200, {
+    "content-type": "application/zip",
+    "content-disposition": `attachment; filename="${fileName}"`,
+    "content-length": String(archiveBuffer.length)
+  });
+  response.end(archiveBuffer);
+}
+
+async function handleLibraryImport(request, response) {
+  const session = requireGmSession(request, response);
+  if (!session) {
+    return;
+  }
+  const archiveBuffer = await readRequestBuffer(request);
+  if (!archiveBuffer.length) {
+    sendError(response, 400, "keine ZIP-Datei empfangen");
+    return;
+  }
+  const result = await importGmLibraryArchive(session.userId, archiveBuffer);
+  sendJson(response, 200, {
+    ok: true,
+    importedSnapshots: result.importedSnapshots,
+    importedGroups: result.importedGroups,
+    library: getLibraryPayload(session.userId)
+  });
+}
+
+async function handleSnapshotSave(request, response) {
+  const session = requireGmSession(request, response);
+  if (!session) {
+    return;
+  }
+  const body = await readJsonBody(request);
+  const name = normalizeLibraryName(body?.name, 80);
+  if (!name) {
+    sendError(response, 400, "snapshot name required");
+    return;
+  }
+  const library = ensureGmLibrary(session.userId);
+  const existing = (library.snapshots || []).find((entry) => entry.name.toLowerCase() === name.toLowerCase());
+  const now = new Date().toISOString();
+  const state = serverState.getState();
+  if (existing) {
+    existing.state = state;
+    existing.pixelsState = createPixelsSnapshotState();
+    existing.updatedAt = now;
+  } else {
+    library.snapshots = [
+      {
+        id: `snap-${randomUUID()}`,
+        name,
+        state,
+        pixelsState: createPixelsSnapshotState(),
+        createdAt: now,
+        updatedAt: now
+      },
+      ...(library.snapshots || [])
+    ].slice(0, 30);
+  }
+  await saveGmLibrary(session.userId);
+  sendJson(response, 200, { library: getLibraryPayload(session.userId) });
+}
+
+async function handleSnapshotLoad(request, response) {
+  const session = requireGmSession(request, response);
+  if (!session) {
+    return;
+  }
+  const body = await readJsonBody(request);
+  const library = ensureGmLibrary(session.userId);
+  const snapshot = (library.snapshots || []).find((entry) => entry.id === body?.snapshotId);
+  if (!snapshot?.state) {
+    sendError(response, 404, "snapshot not found");
+    return;
+  }
+  serverState.setState(snapshot.state);
+  applyPixelsSnapshotState(snapshot.pixelsState);
+  rebuildPendingPixelRolls();
+  await saveRuntime();
+  broadcastStateUpdate("snapshot-loaded");
+  broadcastPixelsEvent("pixels-selection", {
+    reason: "snapshot-loaded",
+    selectedDevices: getSelectedPixelsPayload()
+  });
+  broadcastPixelsEvent("pixels-assignments", {
+    reason: "snapshot-loaded",
+    assignments: getAssignmentsPayload()
+  });
+  broadcastPixelsEvent("pixels-config", {
+    reason: "snapshot-loaded",
+    config: getPixelsConfigPayload()
+  });
+  sendJson(response, 200, {
+    library: getLibraryPayload(session.userId),
+    session,
+    view: serverState.getStateForSession(session),
+    selectedDevices: getSelectedPixelsPayload(),
+    assignments: getAssignmentsPayload(),
+    config: getPixelsConfigPayload()
+  });
+}
+
+async function handleSnapshotDelete(request, response) {
+  const session = requireGmSession(request, response);
+  if (!session) {
+    return;
+  }
+  const body = await readJsonBody(request);
+  const library = ensureGmLibrary(session.userId);
+  library.snapshots = (library.snapshots || []).filter((entry) => entry.id !== body?.snapshotId);
+  await saveGmLibrary(session.userId);
+  sendJson(response, 200, { library: getLibraryPayload(session.userId) });
+}
+
+async function handleGroupSave(request, response) {
+  const session = requireGmSession(request, response);
+  if (!session) {
+    return;
+  }
+  const body = await readJsonBody(request);
+  const type = body?.type === "NPC" ? "NPC" : body?.type === "PC" ? "PC" : null;
+  const name = normalizeLibraryName(body?.name, 80);
+  if (!type) {
+    sendError(response, 400, "group type required");
+    return;
+  }
+  if (!name) {
+    sendError(response, 400, "group name required");
+    return;
+  }
+  const characters = serverState
+    .getState()
+    .characters.filter((character) => character.type === type)
+    .map((character) => createGroupCharacterTemplate(character));
+  if (!characters.length) {
+    sendError(response, 400, "no characters available for group");
+    return;
+  }
+  const library = ensureGmLibrary(session.userId);
+  const existing = (library.groups || []).find(
+    (entry) => entry.type === type && String(entry.name).toLowerCase() === name.toLowerCase()
+  );
+  const now = new Date().toISOString();
+  if (existing) {
+    existing.characters = characters;
+    existing.updatedAt = now;
+  } else {
+    library.groups = [
+      {
+        id: `group-${randomUUID()}`,
+        name,
+        type,
+        characters,
+        createdAt: now,
+        updatedAt: now
+      },
+      ...(library.groups || [])
+    ].slice(0, 60);
+  }
+  await saveGmLibrary(session.userId);
+  sendJson(response, 200, { library: getLibraryPayload(session.userId) });
+}
+
+async function handleGroupLoad(request, response) {
+  const session = requireGmSession(request, response);
+  if (!session) {
+    return;
+  }
+  const body = await readJsonBody(request);
+  const library = ensureGmLibrary(session.userId);
+  const group = (library.groups || []).find((entry) => entry.id === body?.groupId);
+  if (!group) {
+    sendError(response, 404, "group not found");
+    return;
+  }
+  const currentState = serverState.getState();
+  const importedCharacters = instantiateGroupCharacters(group);
+  serverState.setState({
+    ...currentState,
+    characters: [...currentState.characters, ...importedCharacters]
+  });
+  await saveRuntime();
+  broadcastStateUpdate("group-loaded");
+  sendJson(response, 200, {
+    library: getLibraryPayload(session.userId),
+    session,
+    view: serverState.getStateForSession(session)
+  });
+}
+
+async function handleGroupDelete(request, response) {
+  const session = requireGmSession(request, response);
+  if (!session) {
+    return;
+  }
+  const body = await readJsonBody(request);
+  const library = ensureGmLibrary(session.userId);
+  library.groups = (library.groups || []).filter((entry) => entry.id !== body?.groupId);
+  await saveGmLibrary(session.userId);
+  sendJson(response, 200, { library: getLibraryPayload(session.userId) });
 }
 
 async function handleState(request, response) {
@@ -601,29 +1361,15 @@ async function handleAppReset(request, response) {
   }
   serverState.resetState();
   pendingPixelRolls.clear();
-  pixelsAssignments.clear();
-  selectedPixelsDevices.clear();
-  pixelsConfig.mode = PIXELS_MODE.PC_SET_3;
-  pixelsConfig.sharedSet = [null, null, null];
-  for (const monitor of pixelsMonitor.getSnapshot().monitors || []) {
-    pixelsMonitor.unwatchDevice(monitor.address);
-  }
   await saveRuntime();
   broadcastStateUpdate("app-reset");
-  broadcastPixelsEvent("pixels-selection", {
-    reason: "app-reset",
-    selectedDevices: getSelectedPixelsPayload()
-  });
-  broadcastPixelsEvent("pixels-assignments", {
-    reason: "app-reset",
-    assignments: getAssignmentsPayload()
-  });
-  broadcastPixelsEvent("pixels-config", {
-    reason: "app-reset",
+  sendJson(response, 200, {
+    session,
+    view: serverState.getStateForSession(session),
+    selectedDevices: getSelectedPixelsPayload(),
+    assignments: getAssignmentsPayload(),
     config: getPixelsConfigPayload()
   });
-  broadcastPixelsEvent("pixels-status", pixelsMonitor.getSnapshot());
-  sendJson(response, 200, { session, view: serverState.getStateForSession(session) });
 }
 
 async function handleCommand(request, response) {
@@ -640,6 +1386,9 @@ async function handleCommand(request, response) {
       resolveAutomaticInitiativeRolls();
     }
     rebuildPendingPixelRolls();
+    if (command.type === "start-round") {
+      await startPixelsWatchesForPendingRolls();
+    }
     await saveRuntime();
     broadcastStateUpdate(command.type);
     if (command.type === "start-round") {
@@ -1162,12 +1911,64 @@ async function handleRequest(request, response) {
     sendJson(response, 200, getBootstrap());
     return;
   }
+  if (request.method === "POST" && url.pathname === "/api/accounts/register") {
+    await handleAccountRegister(request, response);
+    return;
+  }
   if (request.method === "POST" && url.pathname === "/api/login") {
     await handleLogin(request, response);
     return;
   }
+  if (request.method === "POST" && url.pathname === "/api/logout") {
+    await handleLogout(request, response);
+    return;
+  }
   if (request.method === "GET" && url.pathname === "/api/state") {
     await handleState(request, response);
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/account") {
+    await handleAccountInfo(request, response);
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/account/password") {
+    await handleAccountPasswordUpdate(request, response);
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/library") {
+    await handleLibraryList(request, response);
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/library/export") {
+    await handleLibraryExport(request, response);
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/library/import") {
+    await handleLibraryImport(request, response);
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/library/snapshots/save") {
+    await handleSnapshotSave(request, response);
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/library/snapshots/load") {
+    await handleSnapshotLoad(request, response);
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/library/snapshots/delete") {
+    await handleSnapshotDelete(request, response);
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/library/groups/save") {
+    await handleGroupSave(request, response);
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/library/groups/load") {
+    await handleGroupLoad(request, response);
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/library/groups/delete") {
+    await handleGroupDelete(request, response);
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/state/restore") {
@@ -1259,6 +2060,8 @@ async function handleRequest(request, response) {
 
 export async function startHttpServer(port = PORT) {
   await loadRuntime();
+  ensureDefaultGmAccount();
+  await saveRuntime();
   rebuildPendingPixelRolls();
   const httpServer = createServer((request, response) => {
     void handleRequest(request, response).catch((error) => {
@@ -1267,8 +2070,8 @@ export async function startHttpServer(port = PORT) {
     });
   });
 
-  httpServer.listen(port, "127.0.0.1", () => {
-    console.log(`FateVI Tracker Next listening on http://127.0.0.1:${port}`);
+  httpServer.listen(port, HOST, () => {
+    console.log(`FateVI Tracker Next listening on http://${HOST}:${port}`);
   });
   return httpServer;
 }

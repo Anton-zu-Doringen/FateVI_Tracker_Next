@@ -16,54 +16,58 @@
   <body>
     <main class="app-shell">
       <header class="app-header">
-        <div>
+        <div class="app-header-copy">
           <p class="eyebrow">FateVI Tracker Next</p>
           <h1>Fate VI Initiative und Verwundungen</h1>
-          <p class="lede">Spielleiter-Client mit Serveranbindung, Live-Updates und Pixels-Integration.</p>
+          <p class="lede">Version: 20260316:2055</p>
         </div>
-        <div class="header-action-buttons">
-          <button id="refresh-state" class="ghost header-icon-button" type="button" title="Zustand aktualisieren">↻</button>
-          <div class="header-settings-group">
-            <button id="undo-action" class="ghost header-icon-button" type="button" title="Rückgängig">↶</button>
-            <button id="redo-action" class="ghost header-icon-button" type="button" title="Wiederherstellen">↷</button>
-            <details id="header-settings-menu" class="settings-menu">
-              <summary class="settings-trigger" aria-label="Einstellungen" title="Einstellungen">⚙</summary>
-              <div class="settings-dropdown header-settings-dropdown">
-                <label class="settings-option">
-                  App-Zoom
-                  <input id="font-size-slider" type="range" min="70" max="130" step="1" value="100" />
-                </label>
-                <label class="settings-option checkbox-option">
-                  Einspaltige Ansicht
-                  <input id="force-one-column" type="checkbox" />
-                </label>
-                <button id="reset-app-state" class="ghost" type="button">App resetten</button>
-                <div class="settings-submenu settings-submenu-static">
-                  <div class="settings-submenu-title">Pixels</div>
-                  <div class="settings-submenu-body">
-                    <button id="open-pixels-settings" class="ghost" type="button">Pixels Einstellungen</button>
+        <div class="app-header-side">
+          <div class="header-action-buttons">
+            <button id="refresh-state" class="ghost header-icon-button" type="button" title="Zustand aktualisieren">↻</button>
+            <div class="header-settings-group">
+              <button id="undo-action" class="ghost header-icon-button" type="button" title="Rückgängig">↶</button>
+              <button id="redo-action" class="ghost header-icon-button" type="button" title="Wiederherstellen">↷</button>
+              <details id="header-settings-menu" class="settings-menu">
+                <summary class="settings-trigger" aria-label="Einstellungen" title="Einstellungen">⚙</summary>
+                <div class="settings-dropdown header-settings-dropdown">
+                  <label class="settings-option">
+                    App-Zoom
+                    <input id="font-size-slider" type="range" min="70" max="130" step="1" value="100" />
+                  </label>
+                  <label class="settings-option checkbox-option">
+                    Einspaltige Ansicht
+                    <input id="force-one-column" type="checkbox" />
+                  </label>
+                  <button id="reset-app-state" class="ghost" type="button">Tracker resetten</button>
+                  <div class="settings-submenu settings-submenu-static">
+                    <div class="settings-submenu-title">Pixels</div>
+                    <div class="settings-submenu-body">
+                      <button id="open-pixels-settings" class="ghost" type="button">Pixels Einstellungen</button>
+                    </div>
                   </div>
                 </div>
+              </details>
+            </div>
+          </div>
+          <div class="header-auth">
+            <button id="open-login-dialog" class="auth-link-button" type="button">Einloggen</button>
+            <details id="account-menu" class="settings-menu account-menu" hidden>
+              <summary id="account-menu-trigger" class="account-trigger" aria-label="Account">
+                <span id="account-menu-label">Spielleiter (SL)</span>
+                <span id="account-connection-chip" class="connection-chip disconnected" aria-label="Nicht verbunden" title="Nicht verbunden">✕</span>
+              </summary>
+              <div class="settings-dropdown account-dropdown">
+                <button id="open-account-dialog" class="ghost" type="button">Account-Management</button>
+                <button id="logout-btn" class="ghost" type="button">Ausloggen</button>
               </div>
             </details>
+            <p id="session-status" class="status auth-status sr-only" aria-live="polite">Nicht eingeloggt.</p>
           </div>
         </div>
       </header>
 
       <div class="layout-grid">
         <div class="left-column">
-          <details class="panel collapsible" open>
-            <summary class="collapse-head">Spielleiter</summary>
-            <div class="collapse-body stack">
-              <div class="login-grid">
-                <button id="gm-login" type="button">Als Spielleiter einloggen</button>
-                <input id="gm-password" type="password" value="gm" />
-              </div>
-              <p id="login-hint" class="hint"></p>
-              <p id="session-status" class="status">Nicht eingeloggt.</p>
-            </div>
-          </details>
-
           <details id="panel-add" class="panel collapsible">
             <summary class="collapse-head">Charakter hinzufügen</summary>
             <div class="collapse-body">
@@ -132,36 +136,100 @@
             </div>
           </details>
 
+          <details id="panel-events" class="panel collapsible" open>
+            <summary class="collapse-head">Ereignisse</summary>
+            <div class="collapse-body stack">
+              <form id="event-form" class="event-form">
+                <label>
+                  Beschreibung
+                  <input id="event-description" name="description" type="text" maxlength="120" required placeholder="z. B. Segen endet" />
+                </label>
+                <label class="event-due-inline">
+                  <span>Fällig in</span>
+                  <input id="event-due-offset" name="dueOffset" type="number" min="1" max="99" step="1" value="1" required />
+                  <span>KR</span>
+                </label>
+                <button type="submit">Ereignis hinzufügen</button>
+              </form>
+              <div id="events" class="stack" aria-live="polite"></div>
+            </div>
+          </details>
+
         </div>
 
         <div class="right-column">
+          <details id="panel-import-export" class="panel collapsible" open>
+            <summary class="collapse-head">Laden/Speichern</summary>
+            <div class="collapse-body stack">
+              <details class="panel-submenu" open>
+                <summary class="panel-submenu-head">Import/Export</summary>
+                <div class="panel-submenu-body actions">
+                  <button id="library-export" class="ghost" type="button">Exportieren</button>
+                  <button id="library-import-trigger" class="ghost" type="button">Importieren</button>
+                  <input id="library-import-file" type="file" accept=".zip,application/zip" hidden />
+                </div>
+              </details>
+              <form id="snapshot-form" class="inline-form">
+                <label>
+                  Snapshot
+                  <input id="snapshot-name" name="snapshotName" type="text" maxlength="80" placeholder="z. B. Ork-Überfall KR 3" required />
+                </label>
+                <button type="submit">Tracker speichern</button>
+              </form>
+              <div id="snapshot-list" class="stack" aria-live="polite"></div>
+
+              <form id="pc-group-form" class="inline-form">
+                <label>
+                  SC-Gruppe
+                  <input id="pc-group-name" name="pcGroupName" type="text" maxlength="80" placeholder="z. B. Kernteam" required />
+                </label>
+                <button type="submit">SC speichern</button>
+              </form>
+              <div id="pc-group-list" class="stack" aria-live="polite"></div>
+
+              <form id="npc-group-form" class="inline-form">
+                <label>
+                  NSC-Gruppe
+                  <input id="npc-group-name" name="npcGroupName" type="text" maxlength="80" placeholder="z. B. Stadtwache" required />
+                </label>
+                <button type="submit">NSC speichern</button>
+              </form>
+              <div id="npc-group-list" class="stack" aria-live="polite"></div>
+            </div>
+          </details>
+
           <details id="panel-ini" class="panel collapsible" open>
             <summary class="collapse-head">INI Reihenfolge</summary>
-            <div class="collapse-body">
-              <div class="panel-head panel-head-right">
-                <div class="actions">
-                  <button id="start-round" type="button">Runde starten</button>
-                </div>
+            <div class="collapse-head-tools ini-head-tools">
+              <div class="actions">
+                <details id="ini-settings-menu" class="settings-menu">
+                  <summary class="settings-trigger" aria-label="INI-Einstellungen" title="INI-Einstellungen">⚙</summary>
+                  <div class="settings-dropdown">
+                    <button id="end-combat" class="ghost" type="button">Kampf beenden</button>
+                  </div>
+                </details>
               </div>
+            </div>
+            <div class="collapse-body">
               <p id="round-status" class="round-status">Kampfrunde: -</p>
               <ol id="turn-order" class="tracker" aria-live="polite"></ol>
               <div class="turn-order-footer">
                 <button id="activate-character-up" type="button">Vorheriger Char.</button>
                 <button id="activate-character-down" type="button">Nächster Char.</button>
-                <button id="turn-order-info" type="button" class="ghost" disabled>Server-autoritative INI-Reihenfolge</button>
+                  <button id="start-round" type="button">Kampf starten, wenn noch kein Kampf gestartet wurde</button>
               </div>
             </div>
           </details>
 
-          <details class="panel collapsible" open>
+          <details id="panel-logs" class="panel collapsible" open>
             <summary class="collapse-head">Logs</summary>
+            <div class="collapse-head-tools logs-head-tools">
+              <label class="panel-toggle">
+                <input id="show-system-logs" type="checkbox" checked />
+                Systemlogs anzeigen
+              </label>
+            </div>
             <div class="collapse-body combat-log-body">
-              <div class="panel-head panel-head-right">
-                <label class="panel-toggle">
-                  <input id="show-system-logs" type="checkbox" checked />
-                  Systemlogs anzeigen
-                </label>
-              </div>
               <div id="combat-log" class="combat-log" aria-live="polite"></div>
             </div>
           </details>
@@ -227,11 +295,102 @@
             <option value="pixels">Pixels</option>
           </select>
         </label>
+        <label class="panel-toggle dialog-inline-toggle">
+          <input id="edit-hidden" name="hidden" type="checkbox" />
+          <span>Ausgeblendet</span>
+        </label>
         <div class="dialog-actions">
           <button id="edit-character-cancel" type="button" class="ghost">Abbrechen</button>
           <button id="edit-character-save" type="submit">Speichern</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="login-dialog" class="auth-dialog">
+      <div class="auth-dialog-body">
+        <h3>Spielleiter einloggen</h3>
+        <form id="login-form" class="auth-form">
+          <label>
+            Name
+            <input id="login-name" name="name" type="text" maxlength="40" required />
+          </label>
+          <label>
+            Passwort
+            <input id="login-password" name="password" type="password" minlength="4" required />
+          </label>
+          <div class="dialog-actions">
+            <button id="login-dialog-close" type="button" class="ghost">Abbrechen</button>
+            <button id="gm-login" type="submit">Einloggen</button>
+          </div>
+        </form>
+        <div class="auth-dialog-divider"></div>
+        <h3>Neuen Account erstellen</h3>
+        <form id="register-form" class="auth-form">
+          <label>
+            Name
+            <input id="register-name" name="name" type="text" maxlength="40" required />
+          </label>
+          <label>
+            Passwort
+            <input id="register-password" name="password" type="password" minlength="4" required />
+          </label>
+          <label>
+            Passwort wiederholen
+            <input id="register-password-repeat" name="passwordRepeat" type="password" minlength="4" required />
+          </label>
+          <div class="dialog-actions">
+            <button id="register-account" type="submit">Account erstellen</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog id="account-dialog" class="auth-dialog">
+      <div class="auth-dialog-body">
+        <h3>Account-Management</h3>
+        <p id="account-dialog-description" class="hint">Nicht eingeloggt.</p>
+        <p id="login-hint" class="hint"></p>
+        <form id="account-password-form" class="auth-form">
+          <label>
+            Aktuelles Passwort
+            <input id="account-current-password" name="currentPassword" type="password" minlength="4" required />
+          </label>
+          <label>
+            Neues Passwort
+            <input id="account-new-password" name="newPassword" type="password" minlength="4" required />
+          </label>
+          <label>
+            Neues Passwort wiederholen
+            <input id="account-new-password-repeat" name="newPasswordRepeat" type="password" minlength="4" required />
+          </label>
+          <div class="dialog-actions">
+            <button id="account-dialog-close" type="button" class="ghost">Schließen</button>
+            <button id="account-password-save" type="submit">Passwort ändern</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog id="initiative-roll-dialog" class="pixels-roll-dialog">
+      <div class="pixels-roll-dialog-body">
+        <h3 id="initiative-roll-title">INI Würfelphase</h3>
+        <p id="initiative-roll-status">Warte auf Würfe…</p>
+        <div id="initiative-roll-list" class="pixels-roll-list" aria-live="polite"></div>
+        <div class="actions pixels-roll-dialog-actions">
+          <button id="initiative-roll-close" class="ghost" type="button">Schließen</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="warning-dialog" class="warning-dialog">
+      <div class="warning-dialog-body">
+        <h3 id="warning-dialog-title">Bestätigen</h3>
+        <p id="warning-dialog-message">Soll der Kampf wirklich abgebrochen werden?</p>
+        <div class="actions warning-dialog-actions">
+          <button id="warning-dialog-cancel" class="ghost" type="button">Abbrechen</button>
+          <button id="warning-dialog-confirm" type="button">Bestätigen</button>
+        </div>
+      </div>
     </dialog>
 
     <dialog id="pixels-settings-dialog" class="pixels-settings-dialog">
@@ -241,7 +400,7 @@
           <button id="pixels-settings-close" class="ghost" type="button" title="Schließen">x</button>
         </div>
 
-        <details class="panel collapsible pixels-settings-section" open>
+        <details class="panel collapsible pixels-settings-section">
           <summary class="collapse-head">BLE-Geräte suchen</summary>
           <div class="collapse-body">
             <div class="actions">
@@ -252,7 +411,7 @@
           </div>
         </details>
 
-        <details class="panel collapsible pixels-settings-section" open>
+        <details class="panel collapsible pixels-settings-section">
           <summary class="collapse-head">Gemerkte Pixels</summary>
           <div class="collapse-body">
             <div class="actions">
@@ -263,7 +422,7 @@
           </div>
         </details>
 
-        <details class="panel collapsible pixels-settings-section" open>
+        <details class="panel collapsible pixels-settings-section">
           <summary class="collapse-head">Zuordnungen</summary>
           <div class="collapse-body">
             <label>

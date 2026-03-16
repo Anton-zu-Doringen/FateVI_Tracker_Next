@@ -9,6 +9,7 @@ export function createCharacter(input: {
   id: string;
   name: string;
   type: Character["type"];
+  hidden?: boolean;
   initiativeBase: number;
   specialAbility?: string | null;
   initiativeRollMode?: InitiativeRollMode | null;
@@ -18,6 +19,7 @@ export function createCharacter(input: {
     id: input.id,
     name: input.name,
     type: input.type,
+    hidden: Boolean(input.hidden),
     initiativeBase: input.initiativeBase,
     specialAbility: input.specialAbility ?? null,
     initiativeRollMode: input.initiativeRollMode ?? getDefaultInitiativeRollMode(input.type),
@@ -39,6 +41,7 @@ export function createCharacter(input: {
 export function createCombatState(characters: Character[] = []): CombatState {
   return {
     characters,
+    events: [],
     turnEntries: [],
     round: 0,
     activeCharacterId: null,

@@ -7,6 +7,7 @@ function cloneState(state: CombatState): CombatState {
   return {
     ...state,
     characters: state.characters.map((character) => ({ ...character })),
+    events: Array.isArray(state.events) ? state.events.map((event) => ({ ...event })) : [],
     turnEntries: state.turnEntries.map((entry) => ({ ...entry })),
     pendingInputs: state.pendingInputs.map((input) => ({
       ...input,
@@ -95,6 +96,25 @@ export function applyCommand(state: CombatState, command: Command): RuleResult {
     return updatedEntry;
   };
 
+  const buildOrderedIds = (requestedIds: string[], existingIds: string[]) => {
+    const existingIdSet = new Set(existingIds);
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const id of requestedIds) {
+      if (existingIdSet.has(id) && !seen.has(id)) {
+        seen.add(id);
+        ordered.push(id);
+      }
+    }
+    for (const id of existingIds) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        ordered.push(id);
+      }
+    }
+    return ordered;
+  };
+
   switch (command.type) {
     case "add-character": {
       nextState.characters = [...nextState.characters, createCharacter(command.character)];
@@ -103,11 +123,23 @@ export function applyCommand(state: CombatState, command: Command): RuleResult {
       return { state: nextState, events };
     }
     case "update-character": {
+      const previousCharacter = nextState.characters.find((character) => character.id === command.characterId) ?? null;
+      const hiddenChanged =
+        typeof command.patch.hidden === "boolean" && previousCharacter && command.patch.hidden !== previousCharacter.hidden;
       nextState.characters = nextState.characters.map((character) =>
         character.id === command.characterId
           ? {
               ...character,
               ...command.patch,
+              ...(hiddenChanged
+                ? {
+                    lastRoll: null,
+                    critBonusRoll: null,
+                    totalInitiative: null,
+                    moveActionUsed: false,
+                    specialAbilityActive: false
+                  }
+                : {}),
               initiativeRollMode:
                 command.patch.initiativeRollMode ??
                 character.initiativeRollMode ??
@@ -115,13 +147,20 @@ export function applyCommand(state: CombatState, command: Command): RuleResult {
             }
           : character
       );
+      if (hiddenChanged) {
+        nextState.pendingInputs = nextState.pendingInputs.filter(
+          (input) => !(input.type === "roll" && input.request.kind === "initiative-roll" && input.request.characterId === command.characterId)
+        );
+      }
       rebuildTurnEntries();
       events.push({ type: "character-updated", characterId: command.characterId, detail: "character updated" });
       return { state: nextState, events };
     }
     case "remove-character": {
       nextState.characters = nextState.characters.filter((character) => character.id !== command.characterId);
-      nextState.pendingInputs = nextState.pendingInputs.filter((input) => input.request.characterId !== command.characterId);
+      nextState.pendingInputs = nextState.pendingInputs.filter(
+        (input) => !(input.type === "roll" && input.request.kind === "initiative-roll" && input.request.characterId === command.characterId)
+      );
       rebuildTurnEntries();
       events.push({ type: "character-updated", characterId: command.characterId, detail: "character removed" });
       return { state: nextState, events };
@@ -145,7 +184,9 @@ export function applyCommand(state: CombatState, command: Command): RuleResult {
       nextState.characters = nextState.characters.map((character) =>
         character.id === command.characterId ? { ...character, incapacitated: command.incapacitated } : character
       );
-      nextState.pendingInputs = nextState.pendingInputs.filter((input) => input.request.characterId !== command.characterId);
+      nextState.pendingInputs = nextState.pendingInputs.filter(
+        (input) => !(input.type === "roll" && input.request.kind === "initiative-roll" && input.request.characterId === command.characterId)
+      );
       rebuildTurnEntries();
       events.push({ type: "character-updated", characterId: command.characterId, detail: "incapacitated toggled" });
       return { state: nextState, events };
@@ -282,6 +323,19 @@ export function applyCommand(state: CombatState, command: Command): RuleResult {
       events.push({ type: "special-ability-toggled", characterId: command.characterId });
       return { state: nextState, events };
     }
+    case "add-event": {
+      nextState.events = [...nextState.events, { ...command.event }];
+      events.push({ type: "event-updated", eventId: command.event.id, detail: "event added" });
+      return { state: nextState, events };
+    }
+    case "remove-event": {
+      nextState.events = nextState.events.filter((event) => event.id !== command.eventId);
+      nextState.pendingInputs = nextState.pendingInputs.filter(
+        (input) => !(input.type === "event" && input.request.kind === "event-reminder" && input.request.eventId === command.eventId)
+      );
+      events.push({ type: "event-updated", eventId: command.eventId, detail: "event removed" });
+      return { state: nextState, events };
+    }
     case "start-round": {
       nextState.round += 1;
       nextState.turnEntries = [];
@@ -293,8 +347,17 @@ export function applyCommand(state: CombatState, command: Command): RuleResult {
         moveActionUsed: false,
         specialAbilityActive: false
       }));
-      nextState.pendingInputs = nextState.characters
-        .filter((character) => !character.incapacitated && character.initiativeRollMode !== "automatic")
+      const eventReminderInputs = nextState.events
+        .filter((event) => event.dueRound <= nextState.round)
+        .map((event) => ({
+          type: "event" as const,
+          request: {
+            kind: "event-reminder" as const,
+            eventId: event.id
+          }
+        }));
+      const initiativeInputs = nextState.characters
+        .filter((character) => !character.hidden && !character.incapacitated && character.initiativeRollMode !== "automatic")
         .map((character) => ({
           type: "roll" as const,
           request: {
@@ -303,12 +366,58 @@ export function applyCommand(state: CombatState, command: Command): RuleResult {
             dice: "3d6" as const
           }
         }));
+      nextState.pendingInputs = [...eventReminderInputs, ...initiativeInputs];
       events.push({ type: "round-started", detail: `round ${nextState.round}` });
-      events.push(...nextState.pendingInputs.map((input) => ({
-        type: "initiative-roll-requested" as const,
-        characterId: input.request.characterId
-      })));
+      events.push(
+        ...initiativeInputs.map((input) => ({
+          type: "initiative-roll-requested" as const,
+          characterId: input.request.characterId
+        }))
+      );
       syncActiveCharacter();
+      return { state: nextState, events };
+    }
+    case "end-combat": {
+      nextState.characters = nextState.characters.map((character) => ({
+        ...character,
+        lastRoll: null,
+        critBonusRoll: null,
+        totalInitiative: null,
+        dazedUntilRound: null,
+        unfreeDefensePenalty: 0,
+        paradeClickCount: 0,
+        moveActionUsed: false,
+        specialAbilityActive: false
+      }));
+      nextState.events = [];
+      nextState.turnEntries = [];
+      nextState.round = 0;
+      nextState.activeCharacterId = null;
+      nextState.pendingInputs = [];
+      events.push({ type: "combat-ended", detail: "combat cleared" });
+      return { state: nextState, events };
+    }
+    case "reorder-characters": {
+      const currentIds = nextState.characters.map((character) => character.id);
+      const orderedIds = buildOrderedIds(command.characterIds, currentIds);
+      const characterById = new Map(nextState.characters.map((character) => [character.id, character]));
+      nextState.characters = orderedIds
+        .map((id) => characterById.get(id))
+        .filter((character): character is (typeof nextState.characters)[number] => Boolean(character));
+      events.push({ type: "character-updated", detail: "characters reordered" });
+      return { state: nextState, events };
+    }
+    case "reorder-turn-groups": {
+      const currentIds = getSortedCharacterOrder();
+      const orderedIds = buildOrderedIds(command.characterIds, currentIds);
+      const rankById = new Map(orderedIds.map((id, index) => [id, index]));
+      nextState.turnEntries = [...nextState.turnEntries].sort((left, right) => {
+        const leftRank = rankById.get(left.characterId) ?? Number.MAX_SAFE_INTEGER;
+        const rightRank = rankById.get(right.characterId) ?? Number.MAX_SAFE_INTEGER;
+        return leftRank - rightRank || left.actionIndex - right.actionIndex || left.id.localeCompare(right.id);
+      });
+      syncActiveCharacter();
+      events.push({ type: "turn-entry-toggled", detail: "turn groups reordered" });
       return { state: nextState, events };
     }
     case "activate-character": {
@@ -324,13 +433,15 @@ export function applyCommand(state: CombatState, command: Command): RuleResult {
         nextState.activeCharacterId = null;
         return { state: nextState, events };
       }
-      const currentIndex = Math.max(
-        0,
-        nextState.turnEntries.findIndex((entry) => entry.characterId === nextState.activeCharacterId)
-      );
+      const characterOrder = getSortedCharacterOrder();
+      if (!characterOrder.length) {
+        nextState.activeCharacterId = null;
+        return { state: nextState, events };
+      }
+      const currentIndex = Math.max(0, characterOrder.indexOf(nextState.activeCharacterId ?? ""));
       const offset = command.direction === "previous" ? -1 : 1;
-      const nextIndex = (currentIndex + offset + nextState.turnEntries.length) % nextState.turnEntries.length;
-      nextState.activeCharacterId = nextState.turnEntries[nextIndex]?.characterId ?? nextState.turnEntries[0]?.characterId ?? null;
+      const nextIndex = (currentIndex + offset + characterOrder.length) % characterOrder.length;
+      nextState.activeCharacterId = characterOrder[nextIndex] ?? characterOrder[0] ?? null;
       events.push({ type: "active-character-changed", characterId: nextState.activeCharacterId ?? undefined });
       return { state: nextState, events };
     }
@@ -348,7 +459,7 @@ export function applyCommand(state: CombatState, command: Command): RuleResult {
         };
       });
       nextState.pendingInputs = nextState.pendingInputs.filter(
-        (input) => input.request.characterId !== command.characterId
+        (input) => !(input.type === "roll" && input.request.kind === "initiative-roll" && input.request.characterId === command.characterId)
       );
       rebuildTurnEntries();
       events.push({ type: "initiative-roll-resolved", characterId: command.characterId });

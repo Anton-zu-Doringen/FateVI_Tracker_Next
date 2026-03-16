@@ -21,6 +21,7 @@ export interface PlayerVisibleCharacter {
 export interface PlayerView {
   round: number;
   activeCharacterId: string | null;
+  events: CombatState["events"];
   turnEntries: CombatState["turnEntries"];
   characters: PlayerVisibleCharacter[];
   pendingInputs: CombatState["pendingInputs"];
@@ -30,9 +31,12 @@ export function toPlayerView(state: CombatState, session: Session): PlayerView {
   return {
     round: state.round,
     activeCharacterId: state.activeCharacterId,
+    events: [],
     turnEntries: state.turnEntries.map((entry) => ({ ...entry })),
     pendingInputs: state.pendingInputs
-      .filter((input) => input.request.characterId === session.controlledCharacterId)
+      .filter(
+        (input) => input.type === "roll" && input.request.kind === "initiative-roll" && input.request.characterId === session.controlledCharacterId
+      )
       .map((input) => ({
         ...input,
         request: { ...input.request }
@@ -65,6 +69,7 @@ export function toGmView(state: CombatState): CombatState {
   return {
     ...state,
     characters: state.characters.map((character) => ({ ...character })),
+    events: Array.isArray(state.events) ? state.events.map((event) => ({ ...event })) : [],
     turnEntries: state.turnEntries.map((entry) => ({ ...entry })),
     pendingInputs: state.pendingInputs.map((input) => ({
       ...input,

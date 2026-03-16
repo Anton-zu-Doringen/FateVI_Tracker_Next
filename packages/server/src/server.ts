@@ -1,14 +1,10 @@
-import { applyCommand, createCombatState, createCharacter, type Command, type CombatState } from "@fatevi/rules";
+import { applyCommand, createCombatState, type Command, type CombatState } from "@fatevi/rules";
 import { canExecuteCommand, type Session } from "./auth.js";
 import { NullPixelsAdapter, type PixelsAdapter } from "./pixels.js";
 import { toGmView, toPlayerView } from "./views.js";
 
 function createDefaultState(): CombatState {
-  return createCombatState([
-    createCharacter({ id: "pc-aria", name: "Aria", type: "PC", initiativeBase: 13, ownerUserId: "user-aria" }),
-    createCharacter({ id: "pc-borin", name: "Borin", type: "PC", initiativeBase: 11, ownerUserId: "user-borin" }),
-    createCharacter({ id: "npc-bandit", name: "Bandit", type: "NPC", initiativeBase: 10 })
-  ]);
+  return createCombatState([]);
 }
 
 export class TrackerServer {
@@ -36,6 +32,7 @@ export class TrackerServer {
     return {
       ...source,
       characters: source.characters.map((character) => ({ ...character })),
+      events: Array.isArray(source.events) ? source.events.map((event) => ({ ...event })) : [],
       turnEntries: source.turnEntries.map((entry) => ({ ...entry })),
       pendingInputs: source.pendingInputs.map((input) => ({
         ...input,

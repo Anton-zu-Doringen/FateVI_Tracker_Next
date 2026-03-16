@@ -4,6 +4,7 @@ const state = {
   view: null,
   bootstrap: null,
   eventSource: null,
+  liveConnected: false,
   bluetoothDevices: [],
   pixelsDevices: [],
   pixelsMonitor: { monitors: [], recentEvents: [] },
@@ -11,9 +12,14 @@ const state = {
   pixelsAssignments: [],
   pixelsConfig: { mode: "pc-set-3", sharedSet: [null, null, null] },
   pixelsRollProgress: [],
+  library: { snapshots: [], groups: [] },
+  initiativeDialogRequested: false,
+  initiativeDialogInputs: {},
   logEntries: [],
   minimizedCharacterIds: [],
   editingCharacterId: null,
+  draggedRosterCharacterId: null,
+  draggedTurnCharacterId: null,
   undoStack: [],
   redoStack: [],
   uiSettings: {
@@ -26,13 +32,37 @@ const SESSION_TOKEN_KEY = "fatevi_tracker_next.session_token";
 const UI_SETTINGS_KEY = "fatevi_tracker_next.ui_settings";
 
 const appShellEl = document.querySelector(".app-shell");
+const openLoginDialogBtn = document.getElementById("open-login-dialog");
 const gmLoginBtn = document.getElementById("gm-login");
-const gmPasswordEl = document.getElementById("gm-password");
+const loginDialogEl = document.getElementById("login-dialog");
+const loginFormEl = document.getElementById("login-form");
+const loginDialogCloseBtn = document.getElementById("login-dialog-close");
+const loginNameEl = document.getElementById("login-name");
+const loginPasswordEl = document.getElementById("login-password");
+const registerFormEl = document.getElementById("register-form");
+const registerNameEl = document.getElementById("register-name");
+const registerPasswordEl = document.getElementById("register-password");
+const registerPasswordRepeatEl = document.getElementById("register-password-repeat");
+const accountMenuEl = document.getElementById("account-menu");
+const accountConnectionChipEl = document.getElementById("account-connection-chip");
+const openAccountDialogBtn = document.getElementById("open-account-dialog");
+const logoutBtn = document.getElementById("logout-btn");
+const accountDialogEl = document.getElementById("account-dialog");
+const accountDialogCloseBtn = document.getElementById("account-dialog-close");
+const accountDialogDescriptionEl = document.getElementById("account-dialog-description");
+const accountPasswordFormEl = document.getElementById("account-password-form");
+const accountCurrentPasswordEl = document.getElementById("account-current-password");
+const accountNewPasswordEl = document.getElementById("account-new-password");
+const accountNewPasswordRepeatEl = document.getElementById("account-new-password-repeat");
 const addFormEl = document.getElementById("add-form");
 const addNameEl = document.getElementById("name");
 const addTypeEl = document.getElementById("type");
 const addIniEl = document.getElementById("ini");
 const addSpecialAbilityEl = document.getElementById("special-ability");
+const eventFormEl = document.getElementById("event-form");
+const eventDescriptionEl = document.getElementById("event-description");
+const eventDueOffsetEl = document.getElementById("event-due-offset");
+const eventsEl = document.getElementById("events");
 const loginHintEl = document.getElementById("login-hint");
 const sessionStatusEl = document.getElementById("session-status");
 const refreshStateBtn = document.getElementById("refresh-state");
@@ -43,9 +73,11 @@ const forceOneColumnEl = document.getElementById("force-one-column");
 const resetAppStateBtn = document.getElementById("reset-app-state");
 const headerSettingsMenuEl = document.getElementById("header-settings-menu");
 const characterSettingsMenuEl = document.getElementById("character-settings-menu");
+const iniSettingsMenuEl = document.getElementById("ini-settings-menu");
 const removeAllCharactersBtn = document.getElementById("remove-all-characters");
 const removePcCharactersBtn = document.getElementById("remove-pc-characters");
 const removeNpcCharactersBtn = document.getElementById("remove-npc-characters");
+const endCombatBtn = document.getElementById("end-combat");
 const openPixelsSettingsBtn = document.getElementById("open-pixels-settings");
 const pixelsSettingsDialogEl = document.getElementById("pixels-settings-dialog");
 const pixelsSettingsCloseBtn = document.getElementById("pixels-settings-close");
@@ -54,6 +86,18 @@ const toggleAllPcSurprisedEl = document.getElementById("toggle-all-pc-surprised"
 const toggleAllNpcSurprisedEl = document.getElementById("toggle-all-npc-surprised");
 const turnOrderEl = document.getElementById("turn-order");
 const charactersEl = document.getElementById("characters");
+const snapshotFormEl = document.getElementById("snapshot-form");
+const snapshotNameEl = document.getElementById("snapshot-name");
+const snapshotListEl = document.getElementById("snapshot-list");
+const libraryExportBtn = document.getElementById("library-export");
+const libraryImportTriggerBtn = document.getElementById("library-import-trigger");
+const libraryImportFileEl = document.getElementById("library-import-file");
+const pcGroupFormEl = document.getElementById("pc-group-form");
+const pcGroupNameEl = document.getElementById("pc-group-name");
+const pcGroupListEl = document.getElementById("pc-group-list");
+const npcGroupFormEl = document.getElementById("npc-group-form");
+const npcGroupNameEl = document.getElementById("npc-group-name");
+const npcGroupListEl = document.getElementById("npc-group-list");
 const roundStatusEl = document.getElementById("round-status");
 const combatLogEl = document.getElementById("combat-log");
 const showSystemLogsEl = document.getElementById("show-system-logs");
@@ -70,6 +114,16 @@ const pixelsCharacterAssignmentsEl = document.getElementById("pixels-character-a
 const pixelsMonitorEl = document.getElementById("pixels-monitor");
 const pixelsEventsEl = document.getElementById("pixels-events");
 const clearPixelsEventsBtn = document.getElementById("clear-pixels-events");
+const initiativeRollDialogEl = document.getElementById("initiative-roll-dialog");
+const initiativeRollTitleEl = document.getElementById("initiative-roll-title");
+const initiativeRollStatusEl = document.getElementById("initiative-roll-status");
+const initiativeRollListEl = document.getElementById("initiative-roll-list");
+const initiativeRollCloseBtn = document.getElementById("initiative-roll-close");
+const warningDialogEl = document.getElementById("warning-dialog");
+const warningDialogTitleEl = document.getElementById("warning-dialog-title");
+const warningDialogMessageEl = document.getElementById("warning-dialog-message");
+const warningDialogCancelBtn = document.getElementById("warning-dialog-cancel");
+const warningDialogConfirmBtn = document.getElementById("warning-dialog-confirm");
 const editCharacterDialogEl = document.getElementById("edit-character-dialog");
 const editCharacterFormEl = document.getElementById("edit-character-form");
 const editCharacterTitleEl = document.getElementById("edit-character-title");
@@ -78,6 +132,7 @@ const editTypeEl = document.getElementById("edit-type");
 const editIniEl = document.getElementById("edit-ini");
 const editSpecialAbilityEl = document.getElementById("edit-special-ability");
 const editInitiativeRollModeEl = document.getElementById("edit-initiative-roll-mode");
+const editHiddenEl = document.getElementById("edit-hidden");
 const editCharacterCancelBtn = document.getElementById("edit-character-cancel");
 const DAMAGE_QM_VALUES = ["-", "-", "-", "-", "-", "-", "-", "-1", "-2", "-3", "-4", "-7", "-8", "-9", "-12", "-15"];
 const DAMAGE_BEW_VALUES = ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-1", "-1", "-2", "-3", "-5", "-7"];
@@ -95,7 +150,32 @@ const PIXELS_MODE = {
   PC_SINGLE_3X: "pc-single-3x"
 };
 let headerSettingsCloseTimer = null;
+let warningDialogResolver = null;
 let characterSettingsCloseTimer = null;
+let iniSettingsCloseTimer = null;
+let accountMenuCloseTimer = null;
+
+function openDialog(dialogEl) {
+  if (!dialogEl) {
+    return;
+  }
+  if (typeof dialogEl.showModal === "function") {
+    dialogEl.showModal();
+  } else {
+    dialogEl.setAttribute("open", "open");
+  }
+}
+
+function closeDialog(dialogEl) {
+  if (!dialogEl) {
+    return;
+  }
+  if (typeof dialogEl.close === "function") {
+    dialogEl.close();
+  } else {
+    dialogEl.removeAttribute("open");
+  }
+}
 
 async function requestJson(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -114,6 +194,28 @@ async function requestJson(path, options = {}) {
     throw new Error(payload.error || `HTTP ${response.status}`);
   }
   return payload;
+}
+
+async function requestBinary(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (state.token) {
+    headers.set("Authorization", `Bearer ${state.token}`);
+  }
+  const response = await fetch(path, { ...options, headers });
+  if (!response.ok) {
+    if (response.status === 401) {
+      clearSession();
+    }
+    let message = `HTTP ${response.status}`;
+    try {
+      const payload = await response.json();
+      message = payload.error || message;
+    } catch {
+      // ignore non-json error body
+    }
+    throw new Error(message);
+  }
+  return response;
 }
 
 function createLogEntry(message, options = {}, currentLog = []) {
@@ -178,8 +280,180 @@ function renderLogs() {
   renderLogEntries(combatLogEl, visibleEntries, "Noch keine Logeinträge.");
 }
 
+function formatLibraryTimestamp(value) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+  return date.toLocaleString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function renderLibrarySection(container, entries, emptyMessage, options = {}) {
+  if (!container) {
+    return;
+  }
+  container.innerHTML = "";
+  if (!state.session || state.session.role !== "gm") {
+    container.innerHTML = '<p class="empty">Nur im SL-Login verfügbar.</p>';
+    return;
+  }
+  if (!entries.length) {
+    container.innerHTML = `<p class="empty">${emptyMessage}</p>`;
+    return;
+  }
+
+  for (const entry of entries) {
+    const item = document.createElement("article");
+    item.className = "library-item";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "library-item-head";
+
+    const title = document.createElement("strong");
+    title.textContent = entry.name || "Ohne Name";
+    titleRow.appendChild(title);
+
+    const meta = document.createElement("span");
+    meta.className = "library-item-meta";
+    meta.textContent = `${entry.characterCount || 0} Einträge | ${formatLibraryTimestamp(entry.updatedAt || entry.createdAt)}`;
+    titleRow.appendChild(meta);
+    item.appendChild(titleRow);
+
+    if (typeof entry.round === "number") {
+      const detail = document.createElement("p");
+      detail.className = "library-item-detail";
+      detail.textContent = `Kampfrunde: ${entry.round || 0}`;
+      item.appendChild(detail);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    const loadBtn = document.createElement("button");
+    loadBtn.type = "button";
+    loadBtn.className = "ghost";
+    loadBtn.textContent = "Laden";
+    loadBtn.addEventListener("click", async () => {
+      try {
+        const payload = await requestJson(options.loadPath, {
+          method: "POST",
+          body: JSON.stringify({ [options.idKey]: entry.id })
+        });
+        if (payload.view) {
+          state.undoStack = [];
+          state.redoStack = [];
+          state.view = payload.view;
+          renderView();
+        }
+        if (payload.library) {
+          state.library = payload.library;
+          renderImportExportPanel();
+        }
+        setStatus(`${options.label} geladen: ${entry.name}.`);
+      } catch (error) {
+        setStatus(`${options.label} konnte nicht geladen werden: ${error.message}`);
+      }
+    });
+    actions.appendChild(loadBtn);
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "ghost";
+    deleteBtn.textContent = "Löschen";
+    deleteBtn.addEventListener("click", async () => {
+      const confirmed = await openWarningDialog(`${options.label} "${entry.name}" wirklich löschen?`, `${options.label} löschen`);
+      if (!confirmed) {
+        return;
+      }
+      try {
+        const payload = await requestJson(options.deletePath, {
+          method: "POST",
+          body: JSON.stringify({ [options.idKey]: entry.id })
+        });
+        state.library = payload.library || { snapshots: [], groups: [] };
+        renderImportExportPanel();
+        setStatus(`${options.label} gelöscht: ${entry.name}.`);
+      } catch (error) {
+        setStatus(`${options.label} konnte nicht gelöscht werden: ${error.message}`);
+      }
+    });
+    actions.appendChild(deleteBtn);
+
+    item.appendChild(actions);
+    container.appendChild(item);
+  }
+}
+
+function renderImportExportPanel() {
+  const isGm = Boolean(state.session && state.session.role === "gm");
+  for (const element of [libraryExportBtn, libraryImportTriggerBtn, libraryImportFileEl]) {
+    if (element) {
+      element.disabled = !isGm;
+    }
+  }
+  for (const form of [snapshotFormEl, pcGroupFormEl, npcGroupFormEl]) {
+    if (!form) {
+      continue;
+    }
+    for (const element of form.querySelectorAll("input, button")) {
+      element.disabled = !isGm;
+    }
+  }
+  const groups = Array.isArray(state.library?.groups) ? state.library.groups : [];
+  renderLibrarySection(snapshotListEl, state.library?.snapshots || [], "Noch keine Tracker-Snapshots.", {
+    idKey: "snapshotId",
+    loadPath: "/api/library/snapshots/load",
+    deletePath: "/api/library/snapshots/delete",
+    label: "Snapshot"
+  });
+  renderLibrarySection(
+    pcGroupListEl,
+    groups.filter((entry) => entry.type === "PC"),
+    "Noch keine gespeicherten SC-Gruppen.",
+    {
+      idKey: "groupId",
+      loadPath: "/api/library/groups/load",
+      deletePath: "/api/library/groups/delete",
+      label: "SC-Gruppe"
+    }
+  );
+  renderLibrarySection(
+    npcGroupListEl,
+    groups.filter((entry) => entry.type === "NPC"),
+    "Noch keine gespeicherten NSC-Gruppen.",
+    {
+      idKey: "groupId",
+      loadPath: "/api/library/groups/load",
+      deletePath: "/api/library/groups/delete",
+      label: "NSC-Gruppe"
+    }
+  );
+}
+
+async function loadLibrary() {
+  if (!state.token || !state.session || state.session.role !== "gm") {
+    state.library = { snapshots: [], groups: [] };
+    renderImportExportPanel();
+    return;
+  }
+  const payload = await requestJson("/api/library");
+  state.library = payload.library || { snapshots: [], groups: [] };
+  renderImportExportPanel();
+}
+
 function setStatus(message) {
-  sessionStatusEl.textContent = message;
+  if (sessionStatusEl) {
+    sessionStatusEl.textContent = message;
+  }
   state.logEntries = [...state.logEntries, createLogEntry(message, { kind: "system" }, state.logEntries)].slice(0, 60);
   renderLogs();
 }
@@ -189,6 +463,15 @@ function appendLogMessage(message, options = {}) {
   renderLogs();
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function getCharacterNameById(characterId) {
   return getCharacterById(state.view, characterId)?.name || characterId || "Unbekannt";
 }
@@ -196,6 +479,8 @@ function getCharacterNameById(characterId) {
 function formatRuleEvent(event) {
   const characterName = event?.characterId ? getCharacterNameById(event.characterId) : null;
   switch (event?.type) {
+    case "combat-ended":
+      return "Kampf beendet.";
     case "round-started":
       return `Kampfrunde gestartet (${event.detail || `KR ${Number(state.view?.round || 0) + 1}`}).`;
     case "initiative-roll-requested":
@@ -216,6 +501,8 @@ function formatRuleEvent(event) {
       return `${characterName}: ${event.detail || "Turn geändert"}.`;
     case "character-updated":
       return `${characterName}: ${event.detail || "aktualisiert"}.`;
+    case "event-updated":
+      return `Ereignis: ${event.detail || "aktualisiert"}.`;
     default:
       return null;
   }
@@ -234,6 +521,7 @@ function clearSession() {
   disconnectLiveUpdates();
   saveToken(null);
   state.session = null;
+  state.liveConnected = false;
   state.view = null;
   state.bluetoothDevices = [];
   state.pixelsDevices = [];
@@ -242,8 +530,39 @@ function clearSession() {
   state.pixelsAssignments = [];
   state.pixelsConfig = { mode: PIXELS_MODE.PC_SET_3, sharedSet: [null, null, null] };
   state.pixelsRollProgress = [];
+  state.library = { snapshots: [], groups: [] };
+  state.initiativeDialogRequested = false;
+  state.initiativeDialogInputs = {};
   state.undoStack = [];
   state.redoStack = [];
+  closeInitiativeRollDialog();
+  renderAuthControls();
+}
+
+function getSessionDisplayName() {
+  return state.session?.displayName || "Spielleiter";
+}
+
+function renderAuthControls() {
+  if (openLoginDialogBtn) {
+    openLoginDialogBtn.hidden = Boolean(state.session?.role === "gm");
+  }
+  if (accountMenuEl) {
+    accountMenuEl.hidden = !state.session || state.session.role !== "gm";
+  }
+  const accountMenuTriggerEl = document.getElementById("account-menu-trigger");
+  if (accountMenuTriggerEl) {
+    accountMenuTriggerEl.textContent =
+      state.session?.role === "gm" ? `${getSessionDisplayName()} (SL)` : "Spielleiter (SL)";
+  }
+  if (accountConnectionChipEl) {
+    const connected = Boolean(state.session?.role === "gm" && state.liveConnected);
+    accountConnectionChipEl.className = `connection-chip ${connected ? "connected" : "disconnected"}`;
+    accountConnectionChipEl.textContent = connected ? "✓" : "✕";
+    accountConnectionChipEl.setAttribute("aria-label", connected ? "Verbunden" : "Nicht verbunden");
+    accountConnectionChipEl.setAttribute("title", connected ? "Verbunden" : "Nicht verbunden");
+    accountConnectionChipEl.hidden = !state.session || state.session.role !== "gm";
+  }
 }
 
 function isCharacterMinimized(characterId) {
@@ -281,12 +600,88 @@ function closePixelsSettingsDialog() {
   }
 }
 
+function openInitiativeRollDialog() {
+  if (!initiativeRollDialogEl || initiativeRollDialogEl.open) {
+    return;
+  }
+  if (typeof initiativeRollDialogEl.showModal === "function") {
+    initiativeRollDialogEl.showModal();
+  } else {
+    initiativeRollDialogEl.setAttribute("open", "open");
+  }
+}
+
+function closeInitiativeRollDialog() {
+  if (!initiativeRollDialogEl) {
+    return;
+  }
+  if (typeof initiativeRollDialogEl.close === "function") {
+    initiativeRollDialogEl.close();
+  } else {
+    initiativeRollDialogEl.removeAttribute("open");
+  }
+}
+
+function openWarningDialog(message, title = "Bestätigen") {
+  if (!warningDialogEl || !warningDialogTitleEl || !warningDialogMessageEl) {
+    return Promise.resolve(window.confirm(message));
+  }
+
+  warningDialogTitleEl.textContent = title;
+  warningDialogMessageEl.textContent = message;
+
+  return new Promise((resolve) => {
+    warningDialogResolver = resolve;
+    if (typeof warningDialogEl.showModal === "function") {
+      warningDialogEl.showModal();
+    } else {
+      warningDialogEl.setAttribute("open", "open");
+    }
+  });
+}
+
+function closeWarningDialog(result) {
+  if (warningDialogResolver) {
+    warningDialogResolver(Boolean(result));
+    warningDialogResolver = null;
+  }
+  if (!warningDialogEl) {
+    return;
+  }
+  if (typeof warningDialogEl.close === "function") {
+    warningDialogEl.close();
+  } else {
+    warningDialogEl.removeAttribute("open");
+  }
+}
+
 function getCharacterById(view, characterId) {
   return (view?.characters || []).find((entry) => entry.id === characterId) || null;
 }
 
 function getCharactersByType(view, type) {
   return (view?.characters || []).filter((character) => character.type === type);
+}
+
+function isCharacterHidden(character) {
+  return Boolean(character?.hidden);
+}
+
+function getVisibleCharactersByType(view, type) {
+  return getCharactersByType(view, type).filter((character) => !isCharacterHidden(character));
+}
+
+function getRosterCharacterBuckets(view) {
+  const buckets = {
+    visible: { PC: [], NPC: [] },
+    hidden: { PC: [], NPC: [] }
+  };
+  for (const character of view?.characters || []) {
+    const visibilityKey = isCharacterHidden(character) ? "hidden" : "visible";
+    const typeKey = character.type === "NPC" ? "NPC" : "PC";
+    buckets[visibilityKey][typeKey].push(character);
+  }
+  return buckets;
 }
 
 function getDefaultInitiativeRollMode(type) {
@@ -421,7 +816,7 @@ async function removeCharactersByType(type = null) {
     return;
   }
 
-  const confirmed = window.confirm(confirmText);
+  const confirmed = await openWarningDialog(confirmText, label);
   if (!confirmed) {
     return;
   }
@@ -527,6 +922,72 @@ function getTurnGroups(view) {
   return groups;
 }
 
+function moveIdBeforeTarget(ids, sourceId, targetId) {
+  if (!Array.isArray(ids) || !sourceId || !targetId || sourceId === targetId) {
+    return Array.isArray(ids) ? [...ids] : [];
+  }
+  const nextIds = [...ids];
+  const sourceIndex = nextIds.indexOf(sourceId);
+  const targetIndex = nextIds.indexOf(targetId);
+  if (sourceIndex < 0 || targetIndex < 0) {
+    return nextIds;
+  }
+  const [movedId] = nextIds.splice(sourceIndex, 1);
+  const nextTargetIndex = nextIds.indexOf(targetId);
+  nextIds.splice(nextTargetIndex, 0, movedId);
+  return nextIds;
+}
+
+function moveIdAfterAnchor(ids, sourceId, anchorId = null) {
+  if (!Array.isArray(ids) || !sourceId) {
+    return Array.isArray(ids) ? [...ids] : [];
+  }
+  const nextIds = [...ids];
+  const sourceIndex = nextIds.indexOf(sourceId);
+  if (sourceIndex < 0) {
+    return nextIds;
+  }
+  const [movedId] = nextIds.splice(sourceIndex, 1);
+  if (!anchorId) {
+    nextIds.unshift(movedId);
+    return nextIds;
+  }
+  const anchorIndex = nextIds.indexOf(anchorId);
+  if (anchorIndex < 0) {
+    nextIds.push(movedId);
+    return nextIds;
+  }
+  nextIds.splice(anchorIndex + 1, 0, movedId);
+  return nextIds;
+}
+
+async function moveCharacterToHiddenState(characterId, hidden) {
+  const characters = state.view?.characters || [];
+  const character = characters.find((entry) => entry.id === characterId);
+  if (!character || isCharacterHidden(character) === hidden) {
+    return;
+  }
+  const orderedIds = characters.map((entry) => entry.id);
+  const reorderedIds = hidden
+    ? [...orderedIds.filter((id) => id !== characterId), characterId]
+    : moveIdAfterAnchor(
+        orderedIds,
+        characterId,
+        [...characters].reverse().find((entry) => !isCharacterHidden(entry) && entry.id !== characterId)?.id || null
+      );
+  await performTrackedCombatAction(
+    async () => {
+      await sendCommand({
+        type: "update-character",
+        characterId,
+        patch: { hidden }
+      });
+      await sendCommand({ type: "reorder-characters", characterIds: reorderedIds });
+    },
+    hidden ? "Charakter ausblenden" : "Charakter einblenden"
+  );
+}
+
 function getActiveTurnEntryIdForCharacter(view, characterId) {
   const entries = (view.turnEntries || []).filter((entry) => entry.characterId === characterId);
   const unresolvedEntry = entries.find((entry) => !entry.used);
@@ -573,6 +1034,8 @@ function disconnectLiveUpdates() {
     state.eventSource.close();
     state.eventSource = null;
   }
+  state.liveConnected = false;
+  renderAuthControls();
 }
 
 function connectLiveUpdates() {
@@ -582,13 +1045,17 @@ function connectLiveUpdates() {
   }
 
   const eventSource = new EventSource(`/api/events?token=${encodeURIComponent(state.token)}`);
+  eventSource.onopen = () => {
+    state.liveConnected = true;
+    renderAuthControls();
+  };
   eventSource.addEventListener("state", (event) => {
     const payload = JSON.parse(event.data);
     state.session = payload.session;
     state.view = payload.view;
-    setStatus(
-      `Live verbunden als ${state.session.role}${state.session.controlledCharacterId ? ` (${state.session.controlledCharacterId})` : ""}.`
-    );
+    state.liveConnected = true;
+    renderAuthControls();
+    setStatus(`Live verbunden als ${getSessionDisplayName()} (${state.session.role === "gm" ? "SL" : state.session.role}).`);
     renderView();
   });
   eventSource.addEventListener("pixels-status", (event) => {
@@ -641,13 +1108,18 @@ function connectLiveUpdates() {
     renderPixelsMonitor();
   });
   eventSource.onerror = () => {
+    state.liveConnected = false;
+    renderAuthControls();
     setStatus("Live-Update-Verbindung unterbrochen. Browser versucht Wiederverbindung.");
   };
   state.eventSource = eventSource;
 }
 
 function renderBootstrap() {
-  loginHintEl.textContent = state.bootstrap?.gmLoginHint || "";
+  if (loginHintEl) {
+    loginHintEl.textContent = state.bootstrap?.gmLoginHint || "";
+  }
+  renderAuthControls();
 }
 
 function createCharacterId(name, type) {
@@ -684,6 +1156,9 @@ function openCharacterEditDialog(character) {
   editTypeEl.value = character.type === "NPC" ? "NPC" : "PC";
   editIniEl.value = String(character.initiativeBase ?? 10);
   editSpecialAbilityEl.value = character.specialAbility || "";
+  if (editHiddenEl) {
+    editHiddenEl.checked = Boolean(character.hidden);
+  }
   if (editInitiativeRollModeEl) {
     editInitiativeRollModeEl.value = normalizeInitiativeRollMode(character.initiativeRollMode, character.type);
   }
@@ -707,6 +1182,28 @@ function getPendingInitiativeInputs(view) {
   return (view?.pendingInputs || []).filter(
     (input) => input?.type === "roll" && input?.request?.kind === "initiative-roll"
   );
+}
+
+function getDueTimedEvents(view) {
+  const currentRound = Number(view?.round || 0);
+  if (currentRound <= 0) {
+    return [];
+  }
+  return (view?.events || []).filter((event) => Number(event.dueRound) <= currentRound);
+}
+
+function getInteractivePendingInitiativeEntries(view) {
+  return getPendingInitiativeInputs(view)
+    .map((input) => {
+      const character = getCharacterById(view, input.request.characterId);
+      const detail = getCharacterDetail(character);
+      const mode = normalizeInitiativeRollMode(detail?.initiativeRollMode, character?.type);
+      if (!character || !detail || (mode !== "manual" && mode !== "pixels")) {
+        return null;
+      }
+      return { input, character, detail, mode };
+    })
+    .filter(Boolean);
 }
 
 function isCharacterPendingInitiative(view, characterId) {
@@ -768,6 +1265,280 @@ async function resolvePendingManualInitiativeRolls() {
   }
 }
 
+function getInitiativeDialogInputState(characterId) {
+  const key = String(characterId);
+  if (!state.initiativeDialogInputs[key]) {
+    state.initiativeDialogInputs[key] = { total: "", critBonus: "" };
+  }
+  return state.initiativeDialogInputs[key];
+}
+
+function createInitiativeRollBadge(text, className = "") {
+  const badge = document.createElement("span");
+  badge.className = `pixels-roll-badge${className ? ` ${className}` : ""}`;
+  badge.textContent = text;
+  return badge;
+}
+
+function renderInitiativeRollDialog() {
+  if (!initiativeRollListEl || !initiativeRollStatusEl || !initiativeRollTitleEl) {
+    return;
+  }
+
+  const entries = getInteractivePendingInitiativeEntries(state.view);
+  const dueEvents = getDueTimedEvents(state.view);
+  if (!entries.length && !dueEvents.length) {
+    initiativeRollListEl.innerHTML = "";
+    initiativeRollTitleEl.textContent = "INI Würfelphase";
+    initiativeRollStatusEl.textContent = "Keine offenen INI-Würfe.";
+    state.initiativeDialogRequested = false;
+    closeInitiativeRollDialog();
+    return;
+  }
+
+  initiativeRollTitleEl.textContent = Number(state.view?.round || 0) > 1 ? "Nächste KR" : "Kampf starten";
+  initiativeRollStatusEl.textContent = dueEvents.length
+    ? "Fällige Ereignisse zuerst prüfen, danach manuelle Würfe eintragen und Pixels würfeln."
+    : "Trage manuelle Würfe ein und würfle für Pixels die markierten Würfel.";
+  initiativeRollListEl.innerHTML = "";
+
+  for (const dueEvent of dueEvents) {
+    const row = document.createElement("div");
+    row.className = "pixels-roll-row pending";
+
+    const head = document.createElement("div");
+    head.className = "pixels-roll-row-head";
+    const nameEl = document.createElement("strong");
+    nameEl.textContent = dueEvent.description;
+    head.appendChild(nameEl);
+
+    const badgesEl = document.createElement("div");
+    badgesEl.className = "pixels-roll-row-badges";
+    badgesEl.appendChild(createInitiativeRollBadge("Ereignis"));
+    badgesEl.appendChild(createInitiativeRollBadge(`KR ${dueEvent.dueRound}`));
+    head.appendChild(badgesEl);
+    row.appendChild(head);
+
+    const statusEl = document.createElement("p");
+    statusEl.className = "pixels-roll-row-status";
+    statusEl.textContent = `Fällig seit Beginn von KR ${dueEvent.dueRound}.`;
+    row.appendChild(statusEl);
+
+    const detailEl = document.createElement("p");
+    detailEl.className = "pixels-roll-row-detail";
+    detailEl.textContent = "Nach Kenntnisnahme als erledigt markieren.";
+    row.appendChild(detailEl);
+
+    const controlsEl = document.createElement("div");
+    controlsEl.className = "pixels-roll-row-controls";
+    const doneBtn = document.createElement("button");
+    doneBtn.type = "button";
+    doneBtn.textContent = "Erledigt";
+    doneBtn.addEventListener("click", async () => {
+      try {
+        await performTrackedCombatAction(
+          () => sendCommand({ type: "remove-event", eventId: dueEvent.id }),
+          "Ereignis erledigt"
+        );
+      } catch (error) {
+        setStatus(`Ereignis konnte nicht abgeschlossen werden: ${error.message}`);
+      }
+    });
+    controlsEl.appendChild(doneBtn);
+    row.appendChild(controlsEl);
+    initiativeRollListEl.appendChild(row);
+  }
+
+  for (const entry of entries) {
+    const { character, mode } = entry;
+    const progress = (state.pixelsRollProgress || []).find((item) => item.characterId === character.id) || null;
+    const row = document.createElement("div");
+    row.className = `pixels-roll-row ${mode === "pixels" ? "waiting" : "pending"}`;
+
+    const head = document.createElement("div");
+    head.className = "pixels-roll-row-head";
+    const nameEl = document.createElement("strong");
+    nameEl.textContent = character.name;
+    head.appendChild(nameEl);
+
+    const badgesEl = document.createElement("div");
+    badgesEl.className = "pixels-roll-row-badges";
+    badgesEl.appendChild(createInitiativeRollBadge(mode === "manual" ? "Manuell" : "Pixels", mode));
+    badgesEl.appendChild(createInitiativeRollBadge(character.type === "NPC" ? "NSC" : "SC"));
+    head.appendChild(badgesEl);
+    row.appendChild(head);
+
+    const statusEl = document.createElement("p");
+    statusEl.className = "pixels-roll-row-status";
+    statusEl.textContent =
+      mode === "manual"
+        ? "3W6 eintragen und übernehmen."
+        : progress?.collected?.length
+          ? `Pixels-Wurf läuft: ${progress.collected.length}/${progress.requiredDice}`
+          : "Warte auf Pixels-Wurf.";
+    row.appendChild(statusEl);
+
+    const detailEl = document.createElement("p");
+    detailEl.className = "pixels-roll-row-detail";
+    if (mode === "pixels") {
+      detailEl.textContent = progress?.collected?.length
+        ? progress.collected.map((item) => `${item.label}: ${item.value}`).join(" | ")
+        : "Die zugewiesenen Pixels für diesen Charakter jetzt würfeln.";
+    } else {
+      detailEl.textContent = "Bei kritischer 18 zusätzlich den Krit-W6 eintragen.";
+    }
+    row.appendChild(detailEl);
+
+    const controlsEl = document.createElement("div");
+    controlsEl.className = "pixels-roll-row-controls";
+    if (mode === "manual") {
+      const inputState = getInitiativeDialogInputState(character.id);
+
+      const totalWrap = document.createElement("label");
+      totalWrap.className = "pixels-roll-input-wrap";
+      totalWrap.textContent = "3W6";
+      const totalInput = document.createElement("input");
+      totalInput.type = "number";
+      totalInput.min = "3";
+      totalInput.max = "18";
+      totalInput.step = "1";
+      totalInput.placeholder = "3-18";
+      totalInput.value = inputState.total;
+      totalWrap.appendChild(totalInput);
+      controlsEl.appendChild(totalWrap);
+
+      const critWrap = document.createElement("label");
+      critWrap.className = "pixels-roll-input-wrap";
+      critWrap.textContent = "Krit-W6";
+      const critInput = document.createElement("input");
+      critInput.type = "number";
+      critInput.min = "1";
+      critInput.max = "6";
+      critInput.step = "1";
+      critInput.placeholder = "1-6";
+      critInput.value = inputState.critBonus;
+      critInput.disabled = String(totalInput.value).trim() !== "18";
+      critWrap.appendChild(critInput);
+      controlsEl.appendChild(critWrap);
+
+      totalInput.addEventListener("input", () => {
+        inputState.total = totalInput.value;
+        critInput.disabled = String(totalInput.value).trim() !== "18";
+      });
+      critInput.addEventListener("input", () => {
+        inputState.critBonus = critInput.value;
+      });
+
+      const submitBtn = document.createElement("button");
+      submitBtn.type = "button";
+      submitBtn.textContent = "Übernehmen";
+      submitBtn.addEventListener("click", async () => {
+        const total = parsePromptNumber(totalInput.value, 3, 18);
+        if (total === null) {
+          setStatus(`Ungültiger 3W6-Wert für ${character.name}.`);
+          return;
+        }
+        let critBonusRoll = null;
+        if (total === 18) {
+          critBonusRoll = parsePromptNumber(critInput.value, 1, 6);
+          if (critBonusRoll === null) {
+            setStatus(`Ungültiger Krit-W6-Wert für ${character.name}.`);
+            return;
+          }
+        }
+        try {
+          await sendCommand({
+            type: "resolve-initiative-roll",
+            characterId: character.id,
+            total,
+            critBonusRoll
+          });
+          delete state.initiativeDialogInputs[String(character.id)];
+          setStatus(`INI-Wurf übernommen: ${character.name}.`);
+        } catch (error) {
+          setStatus(`INI-Wurf fehlgeschlagen: ${error.message}`);
+        }
+      });
+      controlsEl.appendChild(submitBtn);
+    }
+    row.appendChild(controlsEl);
+    initiativeRollListEl.appendChild(row);
+  }
+
+  if (state.initiativeDialogRequested || initiativeRollDialogEl?.open) {
+    openInitiativeRollDialog();
+  }
+}
+
+function renderTimedEvents() {
+  if (!eventsEl) {
+    return;
+  }
+  eventsEl.innerHTML = "";
+  if (!state.view?.events?.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "Noch keine Ereignisse angelegt.";
+    eventsEl.appendChild(empty);
+    return;
+  }
+
+  for (const timedEvent of state.view.events) {
+    const isDue = Number(state.view?.round || 0) > 0 && timedEvent.dueRound <= Number(state.view?.round || 0);
+    const card = document.createElement("article");
+    card.className = `event-card${isDue ? " due" : ""}`;
+
+    const topLine = document.createElement("div");
+    topLine.className = "character-topline";
+    const title = document.createElement("h3");
+    title.className = "character-name";
+    title.textContent = timedEvent.description;
+    topLine.appendChild(title);
+
+    const dueBadge = document.createElement("span");
+    dueBadge.className = "type-badge npc";
+    dueBadge.textContent = isDue ? "fällig" : "Ereignis";
+    topLine.appendChild(dueBadge);
+
+    const entryActions = document.createElement("div");
+    entryActions.className = "entry-actions";
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "ghost";
+    removeBtn.title = "Entfernen";
+    removeBtn.textContent = "x";
+    removeBtn.addEventListener("click", async () => {
+      try {
+        await performTrackedCombatAction(
+          () => sendCommand({ type: "remove-event", eventId: timedEvent.id }),
+          "Ereignis entfernen"
+        );
+        setStatus(`Ereignis entfernt: ${timedEvent.description}.`);
+      } catch (error) {
+        setStatus(`Ereignis konnte nicht entfernt werden: ${error.message}`);
+      }
+    });
+    entryActions.appendChild(removeBtn);
+    topLine.appendChild(entryActions);
+    card.appendChild(topLine);
+
+    const meta = document.createElement("p");
+    meta.className = "character-meta";
+    const parts = [`Erstellt in KR ${timedEvent.createdAtRound || 0}`];
+    if (isDue) {
+      parts.push(`fällig seit KR ${timedEvent.dueRound}`);
+    } else {
+      parts.push(`fällig zu Beginn von KR ${timedEvent.dueRound}`);
+    }
+    meta.innerHTML = isDue
+      ? `${escapeHtml(parts[0])} | <span class="event-meta-strong">${escapeHtml(parts[1])}</span>`
+      : escapeHtml(parts.join(" | "));
+    card.appendChild(meta);
+
+    eventsEl.appendChild(card);
+  }
+}
+
 function renderView() {
   const view = state.view;
   if (!view) {
@@ -776,10 +1547,13 @@ function renderView() {
     roundStatusEl.textContent = "Kampfrunde: -";
     rawStateEl.textContent = "{}";
     renderLogs();
+    renderImportExportPanel();
     renderBluetoothDevices();
     renderPixelsDevices();
     renderPixelsCharacterAssignments();
     renderPixelsMonitor();
+    renderTimedEvents();
+    renderInitiativeRollDialog();
     if (toggleAllPcSurprisedEl) {
       toggleAllPcSurprisedEl.checked = false;
       toggleAllPcSurprisedEl.indeterminate = false;
@@ -794,8 +1568,8 @@ function renderView() {
     return;
   }
 
-  const playerCharacters = getCharactersByType(view, "PC");
-  const npcCharacters = getCharactersByType(view, "NPC");
+  const playerCharacters = getVisibleCharactersByType(view, "PC");
+  const npcCharacters = getVisibleCharactersByType(view, "NPC");
   const syncBulkSurprisedToggle = (input, characters) => {
     if (!input) {
       return;
@@ -824,6 +1598,56 @@ function renderView() {
     item.className = `tracker-item ${character?.type === "NPC" ? "type-npc" : "type-pc"}${
       view.activeCharacterId === group.characterId ? " active" : ""
     }`;
+    item.draggable = true;
+    item.dataset.characterId = String(group.characterId);
+    item.addEventListener("dragstart", (event) => {
+      state.draggedTurnCharacterId = group.characterId;
+      item.classList.add("dragging");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(group.characterId));
+      }
+    });
+    item.addEventListener("dragend", () => {
+      state.draggedTurnCharacterId = null;
+      item.classList.remove("dragging");
+      item.classList.remove("drag-target");
+    });
+    item.addEventListener("dragover", (event) => {
+      if (!state.draggedTurnCharacterId || state.draggedTurnCharacterId === group.characterId) {
+        return;
+      }
+      event.preventDefault();
+      item.classList.add("drag-target");
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+    });
+    item.addEventListener("dragleave", () => {
+      item.classList.remove("drag-target");
+    });
+    item.addEventListener("drop", async (event) => {
+      item.classList.remove("drag-target");
+      const sourceId = state.draggedTurnCharacterId;
+      state.draggedTurnCharacterId = null;
+      if (!sourceId || sourceId === group.characterId) {
+        return;
+      }
+      event.preventDefault();
+      const orderedIds = moveIdBeforeTarget(
+        turnGroups.map((turnGroup) => turnGroup.characterId),
+        sourceId,
+        group.characterId
+      );
+      try {
+        await performTrackedCombatAction(
+          () => sendCommand({ type: "reorder-turn-groups", characterIds: orderedIds }),
+          "INI-Reihenfolge ändern"
+        );
+      } catch (error) {
+        setStatus(`INI-Reihenfolge konnte nicht geändert werden: ${error.message}`);
+      }
+    });
     item.addEventListener("click", async () => {
       if (view.activeCharacterId === group.characterId) {
         return;
@@ -990,12 +1814,134 @@ function renderView() {
   }
 
   charactersEl.innerHTML = "";
-  for (const character of view.characters || []) {
+  const rosterBuckets = getRosterCharacterBuckets(view);
+  const visibleRosterCharacters = [...rosterBuckets.visible.PC, ...rosterBuckets.visible.NPC];
+  const hiddenRosterCharacters = [...rosterBuckets.hidden.PC, ...rosterBuckets.hidden.NPC];
+  const renderRosterSection = (characters, options = {}) => {
+    if (!characters.length && !options.emptyMessage) {
+      return;
+    }
+    const section = document.createElement("section");
+    section.className = `roster-section${options.hidden ? " roster-section-hidden" : ""}`;
+
+    if (options.title) {
+      const sectionTitle = document.createElement("h3");
+      sectionTitle.className = "roster-section-title";
+      sectionTitle.textContent = options.title;
+      section.appendChild(sectionTitle);
+    }
+
+    if (options.dropHint) {
+      const hint = document.createElement("p");
+      hint.className = "character-meta";
+      hint.textContent = options.dropHint;
+      section.appendChild(hint);
+    }
+
+    section.addEventListener("dragover", (event) => {
+      if (!state.draggedRosterCharacterId) {
+        return;
+      }
+      event.preventDefault();
+      section.classList.add("drag-target");
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+    });
+    section.addEventListener("dragleave", () => {
+      section.classList.remove("drag-target");
+    });
+    section.addEventListener("drop", async (event) => {
+      section.classList.remove("drag-target");
+      const sourceId = state.draggedRosterCharacterId;
+      state.draggedRosterCharacterId = null;
+      if (!sourceId) {
+        return;
+      }
+      event.preventDefault();
+      try {
+        await moveCharacterToHiddenState(sourceId, Boolean(options.hidden));
+      } catch (error) {
+        setStatus(`Charakterstatus konnte nicht geändert werden: ${error.message}`);
+      }
+    });
+
+    if (!characters.length && options.emptyMessage) {
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = options.emptyMessage;
+      section.appendChild(empty);
+      charactersEl.appendChild(section);
+      return;
+    }
+
+    for (const character of characters) {
     const characterDetail = getCharacterDetail(character);
     const card = document.createElement("article");
     card.className = `character-card type-${character.type === "NPC" ? "npc" : "pc"}${character.isOwned ? " owned" : ""}${
       view.activeCharacterId === character.id ? " active" : ""
-    }${isCharacterMinimized(character.id) ? " minimized" : ""}`;
+    }${isCharacterMinimized(character.id) ? " minimized" : ""}${isCharacterHidden(character) ? " hidden-character" : ""}`;
+    card.draggable = true;
+    card.dataset.characterId = String(character.id);
+    card.addEventListener("dragstart", (event) => {
+      state.draggedRosterCharacterId = character.id;
+      card.classList.add("dragging");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(character.id));
+      }
+    });
+    card.addEventListener("dragend", () => {
+      state.draggedRosterCharacterId = null;
+      card.classList.remove("dragging");
+      card.classList.remove("drag-target");
+    });
+    card.addEventListener("dragover", (event) => {
+      if (!state.draggedRosterCharacterId || state.draggedRosterCharacterId === character.id) {
+        return;
+      }
+      event.preventDefault();
+      card.classList.add("drag-target");
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+    });
+    card.addEventListener("dragleave", () => {
+      card.classList.remove("drag-target");
+    });
+    card.addEventListener("drop", async (event) => {
+      card.classList.remove("drag-target");
+      const sourceId = state.draggedRosterCharacterId;
+      state.draggedRosterCharacterId = null;
+      if (!sourceId || sourceId === character.id) {
+        return;
+      }
+      event.preventDefault();
+      const sourceCharacter = getCharacterById(view, sourceId);
+      const sourceHidden = isCharacterHidden(sourceCharacter);
+      const targetHidden = isCharacterHidden(character);
+      if (sourceHidden !== targetHidden) {
+        try {
+          await moveCharacterToHiddenState(sourceId, targetHidden);
+        } catch (error) {
+          setStatus(`Charakterstatus konnte nicht geändert werden: ${error.message}`);
+        }
+        return;
+      }
+      const orderedIds = moveIdBeforeTarget(
+        (view.characters || []).map((rosterCharacter) => rosterCharacter.id),
+        sourceId,
+        character.id
+      );
+      try {
+        await performTrackedCombatAction(
+          () => sendCommand({ type: "reorder-characters", characterIds: orderedIds }),
+          "Charakter-Reihenfolge ändern"
+        );
+      } catch (error) {
+        setStatus(`Charakter-Reihenfolge konnte nicht geändert werden: ${error.message}`);
+      }
+    });
 
     const topLine = document.createElement("div");
     topLine.className = "character-topline";
@@ -1009,6 +1955,13 @@ function renderView() {
     typeBadge.className = `type-badge ${character.type === "PC" ? "pc" : "npc"}`;
     typeBadge.textContent = character.type === "PC" ? "SC" : "NSC";
     topLine.appendChild(typeBadge);
+
+    if (isCharacterHidden(character)) {
+      const hiddenBadge = document.createElement("span");
+      hiddenBadge.className = "type-badge";
+      hiddenBadge.textContent = "Ausgeblendet";
+      topLine.appendChild(hiddenBadge);
+    }
 
     if (characterDetail) {
       const surpriseToggle = document.createElement("label");
@@ -1086,7 +2039,7 @@ function renderView() {
     removeBtn.title = "Entfernen";
     removeBtn.textContent = "x";
     removeBtn.addEventListener("click", async () => {
-      const confirmed = window.confirm(`Soll ${character.name} wirklich entfernt werden?`);
+      const confirmed = await openWarningDialog(`Soll ${character.name} wirklich entfernt werden?`, "Charakter entfernen");
       if (!confirmed) {
         return;
       }
@@ -1108,8 +2061,16 @@ function renderView() {
 
     const meta = document.createElement("p");
     meta.className = "character-meta";
-    const metaBits = [];
     const specialAbilityLabel = getSpecialAbilityLabel(character.specialAbility);
+    const damagePenalty = characterDetail ? computeDamagePenalty(characterDetail) : { qm: 0, bew: 0 };
+    const dazedPenalty = characterDetail && isCharacterDazed(characterDetail, view.round) ? 3 : 0;
+    const effectiveQmPenalty = damagePenalty.qm + dazedPenalty;
+    const shouldShowDamagePenalty =
+      Boolean(characterDetail) &&
+      (dazedPenalty > 0 || normalizeDamageMonitorMarks(characterDetail.damageMonitorMarks).some((active) => active));
+    const unfreeDefensePenalty = Math.max(0, Math.round(Number(characterDetail?.unfreeDefensePenalty) || 0));
+    const penaltyTexts = [];
+    const metaBits = [];
     if (characterDetail) {
       metaBits.push(`INI ${characterDetail.initiativeBase ?? "-"}`);
       let rollText = `3w6=${characterDetail.lastRoll ?? "-"}, ges.=${character.totalInitiative ?? "-"}`;
@@ -1128,25 +2089,81 @@ function renderView() {
       }
       metaBits.push(rollText);
     }
-    meta.textContent = metaBits.join(" | ");
+    if (shouldShowDamagePenalty) {
+      penaltyTexts.push(`QM/BEW: -${effectiveQmPenalty}/-${damagePenalty.bew}`);
+    }
+    if (unfreeDefensePenalty > 0) {
+      penaltyTexts.push(`Nächste Parade -${unfreeDefensePenalty}`);
+    }
+    if (penaltyTexts.length) {
+      meta.innerHTML = `${escapeHtml(metaBits.join(" | "))} | <span class="character-meta-penalty">${escapeHtml(
+        penaltyTexts.join(" | ")
+      )}</span>`;
+    } else {
+      meta.textContent = metaBits.join(" | ");
+    }
     card.appendChild(meta);
 
     if (characterDetail) {
       const damageMonitor = document.createElement("details");
       damageMonitor.className = "damage-monitor";
       const damageSummary = document.createElement("summary");
+      damageSummary.className = "damage-monitor-summary";
       damageSummary.textContent = "Schadensmonitor";
       damageMonitor.appendChild(damageSummary);
 
       const damageWrap = document.createElement("div");
       damageWrap.className = "damage-monitor-wrap";
-      const damageGrid = document.createElement("div");
-      damageGrid.className = "damage-monitor-grid";
+      const damageTable = document.createElement("table");
+      damageTable.className = "damage-monitor-table";
+      const colgroup = document.createElement("colgroup");
+      const labelCol = document.createElement("col");
+      labelCol.className = "damage-label-col";
+      colgroup.appendChild(labelCol);
+      for (let index = 0; index < 16; index += 1) {
+        const col = document.createElement("col");
+        col.className = "damage-data-col";
+        colgroup.appendChild(col);
+      }
+      damageTable.appendChild(colgroup);
+
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      const emptyHead = document.createElement("th");
+      headRow.appendChild(emptyHead);
+      const groupedHeaders = [
+        { label: "Kratzer", span: 5 },
+        { label: "LW", span: 3 },
+        { label: "MW", span: 3 },
+        { label: "SW", span: 3 }
+      ];
+      for (const header of groupedHeaders) {
+        const th = document.createElement("th");
+        th.colSpan = header.span;
+        th.textContent = header.label;
+        headRow.appendChild(th);
+      }
+      const twHead = document.createElement("th");
+      twHead.className = "damage-single-head";
+      twHead.textContent = "TW";
+      headRow.appendChild(twHead);
+      const tdHead = document.createElement("th");
+      tdHead.className = "damage-single-head";
+      tdHead.textContent = "T†";
+      headRow.appendChild(tdHead);
+      thead.appendChild(headRow);
+      damageTable.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      const woundRow = document.createElement("tr");
+      const woundLabel = document.createElement("th");
+      woundLabel.textContent = "Wunden";
+      woundRow.appendChild(woundLabel);
       const marks = normalizeDamageMonitorMarks(characterDetail.damageMonitorMarks);
       for (let index = 0; index < 16; index += 1) {
-        const markLabel = document.createElement("label");
-        markLabel.className = "damage-mark";
+        const woundCell = document.createElement("td");
         const checkbox = document.createElement("input");
+        checkbox.className = "damage-wound-input";
         checkbox.type = "checkbox";
         checkbox.checked = marks[index];
         checkbox.addEventListener("change", async () => {
@@ -1165,33 +2182,94 @@ function renderView() {
             setStatus(`Schadensmonitor fehlgeschlagen: ${error.message}`);
           }
         });
-        const labelText = document.createElement("span");
-        labelText.textContent = String(index + 1);
-        markLabel.append(checkbox, labelText);
-        damageGrid.appendChild(markLabel);
+        woundCell.appendChild(checkbox);
+        woundRow.appendChild(woundCell);
       }
-      damageWrap.appendChild(damageGrid);
+      tbody.appendChild(woundRow);
+
+      const qmRow = document.createElement("tr");
+      const qmLabel = document.createElement("th");
+      qmLabel.textContent = "QM";
+      qmRow.appendChild(qmLabel);
+      for (const value of DAMAGE_QM_VALUES) {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        qmRow.appendChild(cell);
+      }
+      tbody.appendChild(qmRow);
+
+      const bewRow = document.createElement("tr");
+      const bewLabel = document.createElement("th");
+      bewLabel.textContent = "BEW";
+      bewRow.appendChild(bewLabel);
+      for (const value of DAMAGE_BEW_VALUES) {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        bewRow.appendChild(cell);
+      }
+      tbody.appendChild(bewRow);
+
+      const incapRow = document.createElement("tr");
+      const incapLabel = document.createElement("th");
+      incapLabel.textContent = "Aktionsunfähig";
+      incapRow.appendChild(incapLabel);
+      const incapCells = [
+        { text: "(25)\u00b9", span: 5 },
+        { text: "30", span: 3 },
+        { text: "35", span: 3 },
+        { text: "40", span: 3 },
+        { text: "A", span: 1 },
+        { text: "A", span: 1 }
+      ];
+      for (const cellData of incapCells) {
+        const cell = document.createElement("td");
+        cell.colSpan = cellData.span;
+        cell.textContent = cellData.text;
+        incapRow.appendChild(cell);
+      }
+      tbody.appendChild(incapRow);
+
+      damageTable.appendChild(tbody);
+      damageWrap.appendChild(damageTable);
       const damageNote = document.createElement("p");
       damageNote.className = "damage-monitor-note";
-      damageNote.textContent = `QM: ${DAMAGE_QM_VALUES.join(" ")} | BEW: ${DAMAGE_BEW_VALUES.join(" ")}`;
+      damageNote.textContent = "Anmerkungen: ¹ Nur bei Kopftreffern, † der Charakter stirbt am Ende der nächsten KR.";
       damageWrap.appendChild(damageNote);
       damageMonitor.appendChild(damageWrap);
       card.appendChild(damageMonitor);
     }
 
-    charactersEl.appendChild(card);
-  }
+      section.appendChild(card);
+    }
 
-  const pendingInputs = getPendingInitiativeInputs(view);
-  startRoundBtn.disabled = pendingInputs.length > 0;
+    charactersEl.appendChild(section);
+  };
+
+  renderRosterSection(visibleRosterCharacters, {
+    emptyMessage: "Noch keine sichtbaren Charaktere/NSC.",
+    hidden: false,
+    dropHint: "Charaktere hierher ziehen, um sie im aktiven Kampf anzuzeigen."
+  });
+  renderRosterSection(hiddenRosterCharacters, {
+    title: "Ausgeblendet",
+    emptyMessage: "Keine ausgeblendeten Charaktere.",
+    hidden: true,
+    dropHint: "Ausgeblendete Charaktere erscheinen hier und werden bei der INI ignoriert."
+  });
+
+  startRoundBtn.disabled = false;
+  startRoundBtn.textContent = Number(view.round || 0) > 0 ? "Nächste KR" : "Kampf starten";
   activateCharacterUpBtn.disabled = !(view.turnEntries || []).length;
   activateCharacterDownBtn.disabled = !(view.turnEntries || []).length;
   rawStateEl.textContent = JSON.stringify(view, null, 2);
   renderLogs();
+  renderImportExportPanel();
   renderBluetoothDevices();
   renderPixelsDevices();
   renderPixelsCharacterAssignments();
   renderPixelsMonitor();
+  renderTimedEvents();
+  renderInitiativeRollDialog();
   updateHistoryButtons();
 }
 
@@ -1343,45 +2421,24 @@ function renderPixelsDevices() {
     identifyBtn.disabled = false;
     identifyBtn.addEventListener("click", async () => {
       try {
-        const payload = await requestJson("/api/pixels/identify", {
-          method: "POST",
-          body: JSON.stringify({ address: device.address })
-        });
-        const identity = payload.device?.identity;
-        const pixelId = identity?.pixelId != null ? ` Pixel-ID ${identity.pixelId}` : "";
-        const ledCount = identity?.ledCount != null ? `, LEDs ${identity.ledCount}` : "";
-        setStatus(`Pixels-Identify gesendet an ${device.name}.${pixelId}${ledCount}`);
-        await loadPixelsDevices();
-      } catch (error) {
-        setStatus(`Pixels-Identify fehlgeschlagen: ${error.message}`);
-      }
-    });
-    actions.appendChild(identifyBtn);
-
-    const blinkBtn = document.createElement("button");
-    blinkBtn.type = "button";
-    blinkBtn.textContent = "Grün blinken";
-    blinkBtn.disabled = false;
-    blinkBtn.addEventListener("click", async () => {
-      try {
         const payload = await requestJson("/api/pixels/blink", {
           method: "POST",
           body: JSON.stringify({
             address: device.address,
             color: "#00ff00",
-            count: 6,
-            duration: 180,
-            loopCount: 2
+            count: 1,
+            duration: 420,
+            loopCount: 1
           })
         });
         setStatus(
-          `Pixels-Blinken an ${device.name} gesendet. | path: ${payload.device?.writeCharacteristicPath || "-"} | hex: ${payload.device?.requestHex || "-"}`
+          `Pixels-Test an ${device.name} gesendet. | path: ${payload.device?.writeCharacteristicPath || "-"} | hex: ${payload.device?.requestHex || "-"}`
         );
       } catch (error) {
-        setStatus(`Pixels-Blinken fehlgeschlagen: ${error.message}`);
+        setStatus(`Pixels-Test fehlgeschlagen: ${error.message}`);
       }
     });
-    actions.appendChild(blinkBtn);
+    actions.appendChild(identifyBtn);
 
     const watchBtn = document.createElement("button");
     watchBtn.type = "button";
@@ -1815,20 +2872,29 @@ function renderPixelsMonitor() {
     pixelsMonitorEl.appendChild(item);
   }
 
-  const recentEvents = state.pixelsMonitor?.recentEvents || [];
-  if (!recentEvents.length) {
+  const latestCompletedEventsByAddress = new Map();
+  for (const event of state.pixelsMonitor?.recentEvents || []) {
+    if (!event?.address || !event?.rollState || !["rolled", "onFace"].includes(event.rollState.state)) {
+      continue;
+    }
+    if (!latestCompletedEventsByAddress.has(event.address)) {
+      latestCompletedEventsByAddress.set(event.address, event);
+    }
+  }
+  const completedRollEvents = Array.from(latestCompletedEventsByAddress.values()).sort((left, right) =>
+    String(right.at || "").localeCompare(String(left.at || ""))
+  );
+  if (!completedRollEvents.length) {
     const item = document.createElement("li");
-    item.textContent = "Noch keine Pixels-Events empfangen.";
+    item.textContent = "Noch keine abgeschlossenen Pixels-Würfe empfangen.";
     pixelsEventsEl.appendChild(item);
     return;
   }
 
-  for (const event of recentEvents.slice(0, 12)) {
+  for (const event of completedRollEvents.slice(0, 12)) {
     const item = document.createElement("li");
     const title = document.createElement("strong");
-    const rollText = event.rollState
-      ? `${event.rollState.state} | FaceIndex ${event.rollState.faceIndex} | Face ${event.rollState.face}`
-      : "Rohnachricht";
+    const rollText = `${event.rollState.state} | FaceIndex ${event.rollState.faceIndex} | Face ${event.rollState.face}`;
     title.textContent = `${event.deviceName || event.address} | ${rollText}`;
     item.appendChild(title);
 
@@ -1929,7 +2995,9 @@ async function refreshState() {
   const payload = await requestJson("/api/state");
   state.session = payload.session;
   state.view = payload.view;
-  setStatus(`Eingeloggt als ${state.session.role}${state.session.controlledCharacterId ? ` (${state.session.controlledCharacterId})` : ""}.`);
+  await loadLibrary();
+  renderAuthControls();
+  setStatus(`Eingeloggt als ${getSessionDisplayName()} (${state.session.role === "gm" ? "SL" : state.session.role}).`);
   renderView();
 }
 
@@ -1948,27 +3016,36 @@ async function sendCommand(command) {
   }
 }
 
-gmLoginBtn.addEventListener("click", async () => {
+async function finishGmLogin(payload) {
+  saveToken(payload.token);
+  state.session = payload.session;
+  state.view = payload.view;
+  await loadLibrary();
+  renderAuthControls();
+  closeDialog(loginDialogEl);
+  setStatus(`Als ${getSessionDisplayName()} (SL) eingeloggt.`);
+  renderView();
+  connectLiveUpdates();
+  await loadBluetoothDevices();
+  await loadPixelsMonitor();
+  await loadSelectedPixels();
+  await loadPixelsConfig();
+  await loadPixelsAssignments();
+  await loadPixelsDevices();
+}
+
+loginFormEl?.addEventListener("submit", async (event) => {
+  event.preventDefault();
   try {
     const payload = await requestJson("/api/login", {
       method: "POST",
       body: JSON.stringify({
         role: "gm",
-        password: gmPasswordEl.value
+        name: loginNameEl?.value || "",
+        password: loginPasswordEl?.value || ""
       })
     });
-    saveToken(payload.token);
-    state.session = payload.session;
-    state.view = payload.view;
-    setStatus("Als Spielleiter eingeloggt.");
-    renderView();
-    connectLiveUpdates();
-    await loadBluetoothDevices();
-    await loadPixelsMonitor();
-    await loadSelectedPixels();
-    await loadPixelsConfig();
-    await loadPixelsAssignments();
-    await loadPixelsDevices();
+    await finishGmLogin(payload);
   } catch (error) {
     setStatus(`Login fehlgeschlagen: ${error.message}`);
   }
@@ -2009,6 +3086,23 @@ headerSettingsMenuEl?.addEventListener("mouseenter", () => {
   }
 });
 
+accountMenuEl?.addEventListener("mouseleave", () => {
+  if (accountMenuCloseTimer) {
+    window.clearTimeout(accountMenuCloseTimer);
+  }
+  accountMenuCloseTimer = window.setTimeout(() => {
+    accountMenuEl.open = false;
+    accountMenuCloseTimer = null;
+  }, HEADER_SETTINGS_CLOSE_DELAY_MS);
+});
+
+accountMenuEl?.addEventListener("mouseenter", () => {
+  if (accountMenuCloseTimer) {
+    window.clearTimeout(accountMenuCloseTimer);
+    accountMenuCloseTimer = null;
+  }
+});
+
 characterSettingsMenuEl?.addEventListener("mouseleave", () => {
   if (characterSettingsCloseTimer) {
     window.clearTimeout(characterSettingsCloseTimer);
@@ -2023,6 +3117,23 @@ characterSettingsMenuEl?.addEventListener("mouseenter", () => {
   if (characterSettingsCloseTimer) {
     window.clearTimeout(characterSettingsCloseTimer);
     characterSettingsCloseTimer = null;
+  }
+});
+
+iniSettingsMenuEl?.addEventListener("mouseleave", () => {
+  if (iniSettingsCloseTimer) {
+    window.clearTimeout(iniSettingsCloseTimer);
+  }
+  iniSettingsCloseTimer = window.setTimeout(() => {
+    iniSettingsMenuEl.open = false;
+    iniSettingsCloseTimer = null;
+  }, HEADER_SETTINGS_CLOSE_DELAY_MS);
+});
+
+iniSettingsMenuEl?.addEventListener("mouseenter", () => {
+  if (iniSettingsCloseTimer) {
+    window.clearTimeout(iniSettingsCloseTimer);
+    iniSettingsCloseTimer = null;
   }
 });
 
@@ -2049,6 +3160,117 @@ clearPixelsEventsBtn?.addEventListener("click", () => {
   };
   renderPixelsMonitor();
   setStatus("Alte Pixels-Events gelöscht.");
+});
+
+initiativeRollCloseBtn?.addEventListener("click", () => {
+  state.initiativeDialogRequested = false;
+  closeInitiativeRollDialog();
+});
+
+warningDialogCancelBtn?.addEventListener("click", () => {
+  closeWarningDialog(false);
+});
+
+warningDialogConfirmBtn?.addEventListener("click", () => {
+  closeWarningDialog(true);
+});
+
+openLoginDialogBtn?.addEventListener("click", () => {
+  openDialog(loginDialogEl);
+  loginNameEl?.focus();
+});
+
+loginDialogCloseBtn?.addEventListener("click", () => {
+  closeDialog(loginDialogEl);
+});
+
+registerFormEl?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const name = String(registerNameEl?.value || "").trim();
+    const password = String(registerPasswordEl?.value || "");
+    const repeat = String(registerPasswordRepeatEl?.value || "");
+    if (!name) {
+      setStatus("Accountname fehlt.");
+      return;
+    }
+    if (password !== repeat) {
+      setStatus("Die Passwörter stimmen nicht überein.");
+      return;
+    }
+    await requestJson("/api/accounts/register", {
+      method: "POST",
+      body: JSON.stringify({ name, password })
+    });
+    if (loginNameEl) {
+      loginNameEl.value = name;
+    }
+    if (loginPasswordEl) {
+      loginPasswordEl.value = password;
+    }
+    registerFormEl.reset();
+    setStatus(`SL-Account erstellt: ${name}.`);
+  } catch (error) {
+    setStatus(`Account konnte nicht erstellt werden: ${error.message}`);
+  }
+});
+
+openAccountDialogBtn?.addEventListener("click", async () => {
+  try {
+    const payload = await requestJson("/api/account");
+    if (accountDialogDescriptionEl) {
+      accountDialogDescriptionEl.textContent = `Eingeloggt als ${payload.account.name} (SL).`;
+    }
+    openDialog(accountDialogEl);
+    if (accountMenuEl) {
+      accountMenuEl.open = false;
+    }
+  } catch (error) {
+    setStatus(`Accountdaten konnten nicht geladen werden: ${error.message}`);
+  }
+});
+
+accountDialogCloseBtn?.addEventListener("click", () => {
+  closeDialog(accountDialogEl);
+});
+
+accountPasswordFormEl?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const currentPassword = String(accountCurrentPasswordEl?.value || "");
+    const newPassword = String(accountNewPasswordEl?.value || "");
+    const repeat = String(accountNewPasswordRepeatEl?.value || "");
+    if (newPassword !== repeat) {
+      setStatus("Die neuen Passwörter stimmen nicht überein.");
+      return;
+    }
+    await requestJson("/api/account/password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+    accountPasswordFormEl.reset();
+    closeDialog(accountDialogEl);
+    setStatus("Passwort geändert.");
+  } catch (error) {
+    setStatus(`Passwort konnte nicht geändert werden: ${error.message}`);
+  }
+});
+
+logoutBtn?.addEventListener("click", async () => {
+  try {
+    await requestJson("/api/logout", {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  } catch {
+    // Even on a failing logout request we clear the local session to avoid a stuck UI.
+  }
+  clearSession();
+  if (accountMenuEl) {
+    accountMenuEl.open = false;
+  }
+  renderView();
+  setStatus("Ausgeloggt.");
 });
 
 fontSizeSliderEl?.addEventListener("change", () => {
@@ -2079,8 +3301,122 @@ showSystemLogsEl?.addEventListener("change", () => {
   persistUiSettings();
 });
 
+snapshotFormEl?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const name = String(snapshotNameEl?.value || "").trim();
+    if (!name) {
+      setStatus("Snapshot-Name fehlt.");
+      return;
+    }
+    const payload = await requestJson("/api/library/snapshots/save", {
+      method: "POST",
+      body: JSON.stringify({ name })
+    });
+    state.library = payload.library || { snapshots: [], groups: [] };
+    snapshotFormEl.reset();
+    renderImportExportPanel();
+    setStatus(`Snapshot gespeichert: ${name}.`);
+  } catch (error) {
+    setStatus(`Snapshot konnte nicht gespeichert werden: ${error.message}`);
+  }
+});
+
+pcGroupFormEl?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const name = String(pcGroupNameEl?.value || "").trim();
+    if (!name) {
+      setStatus("SC-Gruppenname fehlt.");
+      return;
+    }
+    const payload = await requestJson("/api/library/groups/save", {
+      method: "POST",
+      body: JSON.stringify({ name, type: "PC" })
+    });
+    state.library = payload.library || { snapshots: [], groups: [] };
+    pcGroupFormEl.reset();
+    renderImportExportPanel();
+    setStatus(`SC-Gruppe gespeichert: ${name}.`);
+  } catch (error) {
+    setStatus(`SC-Gruppe konnte nicht gespeichert werden: ${error.message}`);
+  }
+});
+
+npcGroupFormEl?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const name = String(npcGroupNameEl?.value || "").trim();
+    if (!name) {
+      setStatus("NSC-Gruppenname fehlt.");
+      return;
+    }
+    const payload = await requestJson("/api/library/groups/save", {
+      method: "POST",
+      body: JSON.stringify({ name, type: "NPC" })
+    });
+    state.library = payload.library || { snapshots: [], groups: [] };
+    npcGroupFormEl.reset();
+    renderImportExportPanel();
+    setStatus(`NSC-Gruppe gespeichert: ${name}.`);
+  } catch (error) {
+    setStatus(`NSC-Gruppe konnte nicht gespeichert werden: ${error.message}`);
+  }
+});
+
+libraryExportBtn?.addEventListener("click", async () => {
+  try {
+    const response = await requestBinary("/api/library/export");
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") || "";
+    const match = disposition.match(/filename=\"?([^"]+)\"?/i);
+    const fileName = match?.[1] || "fatevi-library.zip";
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setStatus(`Bibliothek exportiert: ${fileName}.`);
+  } catch (error) {
+    setStatus(`Bibliothek konnte nicht exportiert werden: ${error.message}`);
+  }
+});
+
+libraryImportTriggerBtn?.addEventListener("click", () => {
+  libraryImportFileEl?.click();
+});
+
+libraryImportFileEl?.addEventListener("change", async () => {
+  const file = libraryImportFileEl.files?.[0];
+  if (!file) {
+    return;
+  }
+  try {
+    const payload = await requestJson("/api/library/import", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/zip"
+      },
+      body: await file.arrayBuffer()
+    });
+    state.library = payload.library || { snapshots: [], groups: [] };
+    renderImportExportPanel();
+    setStatus(`Bibliothek importiert: ${payload.importedSnapshots || 0} Snapshots, ${payload.importedGroups || 0} Gruppen.`);
+  } catch (error) {
+    setStatus(`Bibliothek konnte nicht importiert werden: ${error.message}`);
+  } finally {
+    libraryImportFileEl.value = "";
+  }
+});
+
 resetAppStateBtn?.addEventListener("click", async () => {
-  const confirmed = window.confirm("Die gesamte App wird zurückgesetzt. Alle Kampf- und Pixels-Daten gehen verloren. Fortfahren?");
+  const confirmed = await openWarningDialog(
+    "Der Tracker-Zustand wird zurückgesetzt. Charaktere, Kampfzustand und Ereignisse gehen verloren. Fortfahren?",
+    "Tracker resetten"
+  );
   if (!confirmed) {
     return;
   }
@@ -2090,22 +3426,24 @@ resetAppStateBtn?.addEventListener("click", async () => {
       body: JSON.stringify({})
     });
     state.session = payload.session;
+    renderAuthControls();
     state.view = payload.view;
     state.logEntries = [];
     state.undoStack = [];
     state.redoStack = [];
     state.minimizedCharacterIds = [];
-    state.pixelsAssignments = [];
-    state.selectedPixelsDevices = [];
-    state.pixelsDevices = [];
-    state.pixelsMonitor = { monitors: [], recentEvents: [] };
-    state.pixelsConfig = { mode: PIXELS_MODE.PC_SET_3, sharedSet: [null, null, null] };
-    applyUiSettings({ fontScale: 1, forceOneColumn: false, showSystemLogs: true });
-    window.localStorage.removeItem(UI_SETTINGS_KEY);
+    state.pixelsAssignments = payload.assignments || state.pixelsAssignments;
+    state.selectedPixelsDevices = payload.selectedDevices || state.selectedPixelsDevices;
+    state.pixelsConfig = payload.config
+      ? {
+          mode: normalizePixelsMode(payload.config.mode),
+          sharedSet: normalizeSharedSet(payload.config.sharedSet)
+        }
+      : state.pixelsConfig;
     renderView();
-    setStatus("App wurde zurückgesetzt.");
+    setStatus("Tracker wurde zurückgesetzt.");
   } catch (error) {
-    setStatus(`App-Reset fehlgeschlagen: ${error.message}`);
+    setStatus(`Tracker-Reset fehlgeschlagen: ${error.message}`);
   }
 });
 
@@ -2136,12 +3474,32 @@ bluetoothScanBtn.addEventListener("click", async () => {
 
 startRoundBtn.addEventListener("click", async () => {
   try {
+    state.initiativeDialogRequested = true;
     await performTrackedCombatAction(async () => {
       await sendCommand({ type: "start-round" });
-      await resolvePendingManualInitiativeRolls();
-    }, "Runde starten");
+    }, Number(state.view?.round || 0) > 0 ? "Nächste KR" : "Kampf starten");
+    renderInitiativeRollDialog();
   } catch (error) {
     setStatus(`Start fehlgeschlagen: ${error.message}`);
+  }
+});
+
+endCombatBtn?.addEventListener("click", async () => {
+  const confirmed = await openWarningDialog("Kampf beenden und aktuellen KR-Status löschen?", "Kampf beenden");
+  if (!confirmed) {
+    return;
+  }
+  try {
+    state.initiativeDialogRequested = false;
+    await performTrackedCombatAction(async () => {
+      await sendCommand({ type: "end-combat" });
+    }, "Kampf beenden");
+    if (iniSettingsMenuEl) {
+      iniSettingsMenuEl.open = false;
+    }
+    setStatus("Kampf beendet.");
+  } catch (error) {
+    setStatus(`Kampf beenden fehlgeschlagen: ${error.message}`);
   }
 });
 
@@ -2224,6 +3582,40 @@ addFormEl?.addEventListener("submit", async (event) => {
   }
 });
 
+eventFormEl?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const description = String(eventDescriptionEl?.value || "").trim();
+    const dueOffset = Math.max(1, Math.round(Number(eventDueOffsetEl?.value) || 1));
+    if (!description) {
+      setStatus("Ereignisbeschreibung fehlt.");
+      return;
+    }
+    const currentRound = Math.max(0, Number(state.view?.round || 0));
+    const dueRound = currentRound + dueOffset;
+    await performTrackedCombatAction(
+      () =>
+        sendCommand({
+          type: "add-event",
+          event: {
+            id: `event-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+            description,
+            createdAtRound: currentRound,
+            dueRound
+          }
+        }),
+      "Ereignis hinzufügen"
+    );
+    eventFormEl.reset();
+    if (eventDueOffsetEl) {
+      eventDueOffsetEl.value = "1";
+    }
+    setStatus(`Ereignis hinzugefügt: ${description}.`);
+  } catch (error) {
+    setStatus(`Ereignis konnte nicht hinzugefügt werden: ${error.message}`);
+  }
+});
+
 editCharacterCancelBtn?.addEventListener("click", () => {
   closeCharacterEditDialog();
 });
@@ -2244,6 +3636,7 @@ editCharacterFormEl?.addEventListener("submit", async (event) => {
     const initiativeBase = Math.max(1, Math.min(30, Math.round(Number(editIniEl.value) || 10)));
     const specialAbility = String(editSpecialAbilityEl.value || "").trim() || null;
     const initiativeRollMode = normalizeInitiativeRollMode(editInitiativeRollModeEl?.value, type);
+    const hidden = Boolean(editHiddenEl?.checked);
     await performTrackedCombatAction(
       () =>
         sendCommand({
@@ -2252,6 +3645,7 @@ editCharacterFormEl?.addEventListener("submit", async (event) => {
           patch: {
             name,
             type,
+            hidden,
             initiativeBase,
             specialAbility,
             initiativeRollMode
@@ -2350,6 +3744,7 @@ async function init() {
       setStatus(`Gespeicherte Sitzung ungültig: ${error.message}`);
     }
   }
+  renderAuthControls();
   renderView();
 }
 

@@ -4,10 +4,18 @@ export type TurnType = "Main" | "Move" | "Bonus";
 export type CriticalState = "success" | "failure" | null;
 export type InitiativeRollMode = "automatic" | "manual" | "pixels";
 
+export interface TimedEvent {
+  id: string;
+  description: string;
+  dueRound: number;
+  createdAtRound: number;
+}
+
 export interface Character {
   id: string;
   name: string;
   type: CharacterType;
+  hidden: boolean;
   initiativeBase: number;
   specialAbility: string | null;
   initiativeRollMode: InitiativeRollMode;
@@ -41,13 +49,19 @@ export interface PendingRollRequest {
   dice: "3d6";
 }
 
+export interface PendingEventReminderRequest {
+  kind: "event-reminder";
+  eventId: string;
+}
+
 export interface PendingInput {
-  type: "roll";
-  request: PendingRollRequest;
+  type: "roll" | "event";
+  request: PendingRollRequest | PendingEventReminderRequest;
 }
 
 export interface CombatState {
   characters: Character[];
+  events: TimedEvent[];
   turnEntries: TurnEntry[];
   round: number;
   activeCharacterId: string | null;
@@ -56,6 +70,7 @@ export interface CombatState {
 
 export interface RuleEvent {
   type:
+    | "combat-ended"
     | "round-started"
     | "character-updated"
     | "initiative-roll-requested"
@@ -65,8 +80,10 @@ export interface RuleEvent {
     | "dazed-applied"
     | "parade-triggered"
     | "special-ability-toggled"
-    | "turn-entry-toggled";
+    | "turn-entry-toggled"
+    | "event-updated";
   characterId?: string;
+  eventId?: string;
   detail?: string;
 }
 
@@ -82,7 +99,7 @@ export type Command =
       type: "update-character";
       characterId: string;
       patch: Partial<
-        Pick<Character, "name" | "type" | "initiativeBase" | "specialAbility" | "initiativeRollMode" | "ownerUserId">
+        Pick<Character, "name" | "type" | "hidden" | "initiativeBase" | "specialAbility" | "initiativeRollMode" | "ownerUserId">
       >;
     }
   | { type: "remove-character"; characterId: string }
@@ -95,7 +112,12 @@ export type Command =
   | { type: "toggle-turn-entry-used"; entryId: string }
   | { type: "toggle-move-action"; characterId: string }
   | { type: "toggle-special-ability"; characterId: string }
+  | { type: "add-event"; event: TimedEvent }
+  | { type: "remove-event"; eventId: string }
   | { type: "start-round" }
+  | { type: "end-combat" }
+  | { type: "reorder-characters"; characterIds: string[] }
+  | { type: "reorder-turn-groups"; characterIds: string[] }
   | { type: "activate-character"; characterId: string | null }
   | { type: "step-active-character"; direction: "previous" | "next" }
   | { type: "resolve-initiative-roll"; characterId: string; total: number; critBonusRoll?: number | null };

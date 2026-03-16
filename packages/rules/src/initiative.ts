@@ -24,7 +24,7 @@ export function buildTurnEntries(characters: Character[], previousEntries: TurnE
   const nextEntries: TurnEntry[] = [];
 
   for (const character of characters) {
-    if (character.incapacitated || character.totalInitiative === null) {
+    if (character.hidden || character.incapacitated || character.totalInitiative === null) {
       continue;
     }
 
