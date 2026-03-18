@@ -9,9 +9,9 @@
         "ownerUserId": null,
         "surprised": false,
         "incapacitated": false,
-        "lastRoll": 12,
+        "lastRoll": 7,
         "critBonusRoll": null,
-        "totalInitiative": 42,
+        "totalInitiative": 37,
         "unfreeDefensePenalty": 0,
         "paradeClickCount": 0,
         "moveActionUsed": false,
@@ -46,7 +46,7 @@
         "specialAbility": null,
         "ownerUserId": null,
         "surprised": false,
-        "incapacitated": true,
+        "incapacitated": false,
         "dazedUntilRound": null,
         "damageMonitorMarks": [
           false,
@@ -68,9 +68,9 @@
         ],
         "unfreeDefensePenalty": 0,
         "paradeClickCount": 0,
-        "lastRoll": 7,
+        "lastRoll": 10,
         "critBonusRoll": null,
-        "totalInitiative": 28,
+        "totalInitiative": 31,
         "moveActionUsed": false,
         "specialAbilityActive": false,
         "initiativeRollMode": "pixels"
@@ -105,9 +105,9 @@
         ],
         "unfreeDefensePenalty": 0,
         "paradeClickCount": 0,
-        "lastRoll": 9,
+        "lastRoll": 10,
         "critBonusRoll": null,
-        "totalInitiative": 24,
+        "totalInitiative": 25,
         "moveActionUsed": false,
         "initiativeRollMode": "pixels",
         "specialAbilityActive": false
@@ -145,9 +145,9 @@
         "paradeClickCount": 0,
         "moveActionUsed": false,
         "specialAbilityActive": false,
-        "lastRoll": 10,
+        "lastRoll": 7,
         "critBonusRoll": null,
-        "totalInitiative": 31
+        "totalInitiative": 28
       },
       {
         "id": "npc-grumbsch-1wp5",
@@ -179,9 +179,9 @@
         ],
         "unfreeDefensePenalty": 0,
         "paradeClickCount": 0,
-        "lastRoll": 9,
+        "lastRoll": null,
         "critBonusRoll": null,
-        "totalInitiative": 19,
+        "totalInitiative": null,
         "moveActionUsed": false,
         "specialAbilityActive": false,
         "initiativeRollMode": "automatic",
@@ -193,7 +193,7 @@
         "id": "npc-bandit:bonus",
         "characterId": "npc-bandit",
         "turnType": "Bonus",
-        "groupInitiative": 42,
+        "groupInitiative": 37,
         "critical": null,
         "used": false,
         "actionIndex": 0
@@ -202,7 +202,7 @@
         "id": "npc-bandit:main",
         "characterId": "npc-bandit",
         "turnType": "Main",
-        "groupInitiative": 42,
+        "groupInitiative": 37,
         "critical": null,
         "used": false,
         "actionIndex": 1
@@ -211,14 +211,14 @@
         "id": "npc-bandit:move",
         "characterId": "npc-bandit",
         "turnType": "Move",
-        "groupInitiative": 42,
+        "groupInitiative": 37,
         "critical": null,
         "used": false,
         "actionIndex": 2
       },
       {
-        "id": "pc-anton-zu-dohringen-vqvf:bonus",
-        "characterId": "pc-anton-zu-dohringen-vqvf",
+        "id": "npc-karl-oby1:bonus",
+        "characterId": "npc-karl-oby1",
         "turnType": "Bonus",
         "groupInitiative": 31,
         "critical": null,
@@ -226,8 +226,8 @@
         "actionIndex": 0
       },
       {
-        "id": "pc-anton-zu-dohringen-vqvf:main",
-        "characterId": "pc-anton-zu-dohringen-vqvf",
+        "id": "npc-karl-oby1:main",
+        "characterId": "npc-karl-oby1",
         "turnType": "Main",
         "groupInitiative": 31,
         "critical": null,
@@ -235,8 +235,8 @@
         "actionIndex": 1
       },
       {
-        "id": "pc-anton-zu-dohringen-vqvf:move",
-        "characterId": "pc-anton-zu-dohringen-vqvf",
+        "id": "npc-karl-oby1:move",
+        "characterId": "npc-karl-oby1",
         "turnType": "Move",
         "groupInitiative": 31,
         "critical": null,
@@ -244,10 +244,28 @@
         "actionIndex": 2
       },
       {
+        "id": "pc-anton-zu-dohringen-vqvf:main",
+        "characterId": "pc-anton-zu-dohringen-vqvf",
+        "turnType": "Main",
+        "groupInitiative": 28,
+        "critical": null,
+        "used": false,
+        "actionIndex": 0
+      },
+      {
+        "id": "pc-anton-zu-dohringen-vqvf:move",
+        "characterId": "pc-anton-zu-dohringen-vqvf",
+        "turnType": "Move",
+        "groupInitiative": 28,
+        "critical": null,
+        "used": false,
+        "actionIndex": 1
+      },
+      {
         "id": "pc-karli-u7js:main",
         "characterId": "pc-karli-u7js",
         "turnType": "Main",
-        "groupInitiative": 24,
+        "groupInitiative": 25,
         "critical": null,
         "used": false,
         "actionIndex": 0
@@ -256,31 +274,13 @@
         "id": "pc-karli-u7js:move",
         "characterId": "pc-karli-u7js",
         "turnType": "Move",
-        "groupInitiative": 24,
-        "critical": null,
-        "used": false,
-        "actionIndex": 1
-      },
-      {
-        "id": "npc-grumbsch-1wp5:main",
-        "characterId": "npc-grumbsch-1wp5",
-        "turnType": "Main",
-        "groupInitiative": 19,
-        "critical": null,
-        "used": false,
-        "actionIndex": 0
-      },
-      {
-        "id": "npc-grumbsch-1wp5:move",
-        "characterId": "npc-grumbsch-1wp5",
-        "turnType": "Move",
-        "groupInitiative": 19,
+        "groupInitiative": 25,
         "critical": null,
         "used": false,
         "actionIndex": 1
       }
     ],
-    "round": 5,
+    "round": 24,
     "activeCharacterId": "npc-bandit",
     "pendingInputs": [],
     "events": []

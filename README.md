@@ -32,6 +32,31 @@ Dieses Repo ist ein Startpunkt für die neue Architektur:
 
 ## Lokal starten
 
+## Software-Abhängigkeiten
+
+Für Entwicklung und Betrieb werden lokal folgende Programme benötigt:
+
+- `node` in einer aktuellen Version, weil Server und Client-Tooling auf Node laufen
+- `npm`, um die Workspace-Abhängigkeiten zu installieren und die Skripte auszuführen
+- `typescript`, lokal über `npm install` im Repo; wird über `npm run build` und `npm run check` genutzt
+
+Zusätzlich für die Bluetooth-/Pixels-Integration unter Linux:
+
+- `bluetoothctl` aus BlueZ für Scan, Pairing, Trust und Connect
+- `busctl` für den Zugriff auf die BlueZ-GATT-Objekte
+
+Zusätzlich für den Bibliotheks-Import/-Export:
+
+- `zip` zum Exportieren des SL-Bibliotheksordners
+- `unzip` zum Importieren einer exportierten Bibliotheks-ZIP
+
+Installation der Node-Abhängigkeiten:
+
+```bash
+cd /var/home/lain/Dokumente/GitHub/FateVI_Tracker_Next
+npm install
+```
+
 ```bash
 cd /var/home/lain/Dokumente/GitHub/FateVI_Tracker_Next
 npm run build

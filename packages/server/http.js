@@ -22,6 +22,7 @@ const bluetoothOperations = new Map();
 const pixelsAssignments = new Map();
 const selectedPixelsDevices = new Map();
 const pendingPixelRolls = new Map();
+const armedPixelsRolls = new Map();
 const gmAccounts = new Map();
 const gmLibraries = new Map();
 const currentFile = fileURLToPath(import.meta.url);
@@ -33,6 +34,7 @@ const librariesDir = path.join(dataDir, "libraries");
 const execFileAsync = promisify(execFile);
 const PIXELS_SLOT_VALUES = [1, 2, 3];
 const PIXELS_ROLL_DEBOUNCE_MS = 1200;
+const PIXELS_ROLL_ARM_WINDOW_MS = 4000;
 const PIXELS_MODE = {
   PC_SET_3: "pc-set-3",
   SHARED_SET_3: "shared-set-3",
@@ -2059,12 +2061,27 @@ async function handlePixelsRollIntegration(event) {
     return;
   }
 
+  if (event.rollState.state === "rolling") {
+    armedPixelsRolls.set(event.address, Date.now());
+    return;
+  }
+
   const acceptedStates = new Set(["rolled", "onFace", "handling"]);
   if (!acceptedStates.has(event.rollState.state)) {
     return;
   }
   const faceValue = Number(event.rollState.face);
   if (!Number.isInteger(faceValue) || faceValue < 1 || faceValue > 6) {
+    return;
+  }
+  const now = Date.now();
+  const armedAt = armedPixelsRolls.get(event.address) || 0;
+  if (!armedAt || now - armedAt > PIXELS_ROLL_ARM_WINDOW_MS) {
+    broadcastPixelsEvent("pixels-roll-ignored", {
+      address: event.address,
+      face: faceValue,
+      reason: "not-armed"
+    });
     return;
   }
 
@@ -2096,7 +2113,6 @@ async function handlePixelsRollIntegration(event) {
   }
 
   const lastAcceptedAt = pendingRoll.acceptedAtByAddress.get(event.address);
-  const now = Date.now();
   if (lastAcceptedAt && now - lastAcceptedAt < PIXELS_ROLL_DEBOUNCE_MS) {
     broadcastPixelsEvent("pixels-roll-ignored", {
       characterId: pendingRoll.characterId,
@@ -2106,6 +2122,7 @@ async function handlePixelsRollIntegration(event) {
     });
     return;
   }
+  armedPixelsRolls.delete(event.address);
   pendingRoll.acceptedAtByAddress.set(event.address, now);
   if (pendingRoll.phase === "main" && pendingRoll.mode === PIXELS_MODE.PC_SET_3) {
     if (pendingRoll.results.some((entry) => entry.address === event.address)) {

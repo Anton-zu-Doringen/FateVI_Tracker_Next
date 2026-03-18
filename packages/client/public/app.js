@@ -16,6 +16,7 @@ const state = {
   library: { snapshots: [], groups: [] },
   initiativeDialogRequested: false,
   initiativeDialogInputs: {},
+  recentInitiativeResults: [],
   logEntries: [],
   minimizedCharacterIds: [],
   editingCharacterId: null,
@@ -26,13 +27,16 @@ const state = {
   uiSettings: {
     fontScale: 1,
     forceOneColumn: false,
-    showSystemLogs: true
+    showSystemLogs: true,
+    autoCloseInitiativeDialog: true
   }
 };
 const SESSION_TOKEN_KEY = "fatevi_tracker_next.session_token";
 const UI_SETTINGS_KEY = "fatevi_tracker_next.ui_settings";
 
 const appShellEl = document.querySelector(".app-shell");
+const addPanelEl = document.getElementById("panel-add");
+const importExportPanelEl = document.getElementById("panel-import-export");
 const openLoginDialogBtn = document.getElementById("open-login-dialog");
 const gmLoginBtn = document.getElementById("gm-login");
 const loginDialogEl = document.getElementById("login-dialog");
@@ -45,6 +49,7 @@ const registerNameEl = document.getElementById("register-name");
 const registerPasswordEl = document.getElementById("register-password");
 const registerPasswordRepeatEl = document.getElementById("register-password-repeat");
 const accountMenuEl = document.getElementById("account-menu");
+const accountMenuLabelEl = document.getElementById("account-menu-label");
 const accountConnectionChipEl = document.getElementById("account-connection-chip");
 const openAccountDialogBtn = document.getElementById("open-account-dialog");
 const logoutBtn = document.getElementById("logout-btn");
@@ -71,6 +76,7 @@ const undoActionBtn = document.getElementById("undo-action");
 const redoActionBtn = document.getElementById("redo-action");
 const fontSizeSliderEl = document.getElementById("font-size-slider");
 const forceOneColumnEl = document.getElementById("force-one-column");
+const autoCloseInitiativeDialogEl = document.getElementById("auto-close-initiative-dialog");
 const resetAppStateBtn = document.getElementById("reset-app-state");
 const headerSettingsMenuEl = document.getElementById("header-settings-menu");
 const characterSettingsMenuEl = document.getElementById("character-settings-menu");
@@ -102,7 +108,6 @@ const npcGroupListEl = document.getElementById("npc-group-list");
 const roundStatusEl = document.getElementById("round-status");
 const combatLogEl = document.getElementById("combat-log");
 const showSystemLogsEl = document.getElementById("show-system-logs");
-const rawStateEl = document.getElementById("raw-state");
 const activateCharacterUpBtn = document.getElementById("activate-character-up");
 const activateCharacterDownBtn = document.getElementById("activate-character-down");
 const bluetoothScanBtn = document.getElementById("bluetooth-scan");
@@ -155,6 +160,8 @@ let warningDialogResolver = null;
 let characterSettingsCloseTimer = null;
 let iniSettingsCloseTimer = null;
 let accountMenuCloseTimer = null;
+let initiativeDialogCloseTimer = null;
+const INITIATIVE_DIALOG_CLOSE_DELAY_MS = 1200;
 
 function openDialog(dialogEl) {
   if (!dialogEl) {
@@ -522,7 +529,7 @@ function formatRuleEvent(event) {
     case "initiative-roll-requested":
       return `INI-Wurf angefordert: ${characterName}.`;
     case "initiative-roll-resolved":
-      return `INI-Wurf übernommen: ${characterName}.`;
+      return null;
     case "active-character-changed":
       return `Aktiver Charakter: ${characterName || "-"}.`;
     case "damage-monitor-updated":
@@ -570,6 +577,7 @@ function clearSession() {
   state.library = { snapshots: [], groups: [] };
   state.initiativeDialogRequested = false;
   state.initiativeDialogInputs = {};
+  state.recentInitiativeResults = [];
   state.undoStack = [];
   state.redoStack = [];
   closeInitiativeRollDialog();
@@ -588,10 +596,8 @@ function renderAuthControls() {
   if (accountMenuEl) {
     accountMenuEl.hidden = !state.session || state.session.role !== "gm";
   }
-  const accountMenuTriggerEl = document.getElementById("account-menu-trigger");
-  if (accountMenuTriggerEl) {
-    accountMenuTriggerEl.textContent =
-      state.session?.role === "gm" ? `${getSessionDisplayName()} (SL)` : "Spielleiter (SL)";
+  if (accountMenuLabelEl) {
+    accountMenuLabelEl.textContent = state.session?.role === "gm" ? `${getSessionDisplayName()} (SL)` : "Spielleiter (SL)";
   }
   if (accountConnectionChipEl) {
     const connected = Boolean(state.session?.role === "gm" && state.liveConnected);
@@ -640,7 +646,15 @@ function closePixelsSettingsDialog() {
 
 function openInitiativeRollDialog() {
   if (!initiativeRollDialogEl || initiativeRollDialogEl.open) {
+    if (initiativeDialogCloseTimer) {
+      window.clearTimeout(initiativeDialogCloseTimer);
+      initiativeDialogCloseTimer = null;
+    }
     return;
+  }
+  if (initiativeDialogCloseTimer) {
+    window.clearTimeout(initiativeDialogCloseTimer);
+    initiativeDialogCloseTimer = null;
   }
   if (typeof initiativeRollDialogEl.showModal === "function") {
     initiativeRollDialogEl.showModal();
@@ -650,6 +664,10 @@ function openInitiativeRollDialog() {
 }
 
 function closeInitiativeRollDialog() {
+  if (initiativeDialogCloseTimer) {
+    window.clearTimeout(initiativeDialogCloseTimer);
+    initiativeDialogCloseTimer = null;
+  }
   if (!initiativeRollDialogEl) {
     return;
   }
@@ -658,6 +676,19 @@ function closeInitiativeRollDialog() {
   } else {
     initiativeRollDialogEl.removeAttribute("open");
   }
+}
+
+function scheduleInitiativeRollDialogClose() {
+  if (state.uiSettings.autoCloseInitiativeDialog === false) {
+    return;
+  }
+  if (initiativeDialogCloseTimer) {
+    window.clearTimeout(initiativeDialogCloseTimer);
+  }
+  initiativeDialogCloseTimer = window.setTimeout(() => {
+    state.recentInitiativeResults = [];
+    closeInitiativeRollDialog();
+  }, INITIATIVE_DIALOG_CLOSE_DELAY_MS);
 }
 
 function openWarningDialog(message, title = "Bestätigen") {
@@ -740,6 +771,71 @@ function getSpecialAbilityLabel(value) {
   return SPECIAL_ABILITY_LABELS[value] || value;
 }
 
+function getCharacterInitiativeSummary(character, view) {
+  const detail = getCharacterDetail(character);
+  if (!character || !detail) {
+    return "";
+  }
+  const parts = [];
+  parts.push(`INI ${detail.initiativeBase ?? "-"}`);
+  let rollText = `3w6=${detail.lastRoll ?? "-"}, ges.=${character.totalInitiative ?? "-"}`;
+  const specialAbilityLabel = getSpecialAbilityLabel(character.specialAbility);
+  if (specialAbilityLabel) {
+    rollText += ` | Ch.-Vorteil=${specialAbilityLabel}`;
+  }
+  parts.push(rollText);
+  if (isCharacterDazed(detail, Number(view?.round || 0))) {
+    parts.push(`Ben. bis Ende KR ${detail.dazedUntilRound}`);
+  }
+  return parts.join(" | ");
+}
+
+function getCharacterInitiativeLogSummary(character) {
+  const detail = getCharacterDetail(character);
+  if (!character || !detail) {
+    return "";
+  }
+  return `INI-Wurf: ${detail.initiativeBase ?? "-"} | 3w6=${detail.lastRoll ?? "-"} | ges.=${character.totalInitiative ?? "-"}`;
+}
+
+function collectResolvedInitiativeResults(previousView, nextView) {
+  if (!previousView || !nextView) {
+    return [];
+  }
+  const previousCharacters = new Map((previousView.characters || []).map((character) => [character.id, character]));
+  const results = [];
+  for (const character of nextView.characters || []) {
+    const previousCharacter = previousCharacters.get(character.id) || null;
+    const lastRollChanged = (previousCharacter?.lastRoll ?? null) !== (character.lastRoll ?? null);
+    const critBonusChanged = (previousCharacter?.critBonusRoll ?? null) !== (character.critBonusRoll ?? null);
+    const totalChanged = (previousCharacter?.totalInitiative ?? null) !== (character.totalInitiative ?? null);
+    if (!character.lastRoll || (!lastRollChanged && !critBonusChanged && !totalChanged)) {
+      continue;
+    }
+    results.push({
+      id: `${character.id}:${character.lastRoll}:${character.critBonusRoll ?? "-"}:${character.totalInitiative ?? "-"}`,
+      characterId: character.id,
+      name: character.name,
+      summary: getCharacterInitiativeSummary(character, nextView),
+      logSummary: getCharacterInitiativeLogSummary(character)
+    });
+  }
+  return results;
+}
+
+function applyResolvedInitiativeResults(results = []) {
+  if (!results.length) {
+    return;
+  }
+  state.recentInitiativeResults = [
+    ...results,
+    ...state.recentInitiativeResults.filter((entry) => !results.some((result) => result.id === entry.id))
+  ].slice(0, 12);
+  for (const result of results) {
+    appendLogMessage(`${result.name}: ${result.logSummary}`);
+  }
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -752,7 +848,8 @@ function applyUiSettings(uiSettings) {
   const fontScale = clamp(Number(uiSettings?.fontScale) || 1, 0.7, 1.3);
   const forceOneColumn = Boolean(uiSettings?.forceOneColumn);
   const showSystemLogs = uiSettings?.showSystemLogs !== false;
-  state.uiSettings = { fontScale, forceOneColumn, showSystemLogs };
+  const autoCloseInitiativeDialog = uiSettings?.autoCloseInitiativeDialog !== false;
+  state.uiSettings = { fontScale, forceOneColumn, showSystemLogs, autoCloseInitiativeDialog };
   if (appShellEl) {
     appShellEl.style.zoom = String(fontScale);
     const supportsZoom = typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("zoom", "1");
@@ -775,6 +872,9 @@ function applyUiSettings(uiSettings) {
   }
   if (showSystemLogsEl) {
     showSystemLogsEl.checked = showSystemLogs;
+  }
+  if (autoCloseInitiativeDialogEl) {
+    autoCloseInitiativeDialogEl.checked = autoCloseInitiativeDialog;
   }
   renderLogs();
 }
@@ -1084,16 +1184,21 @@ function connectLiveUpdates() {
 
   const eventSource = new EventSource(`/api/events?token=${encodeURIComponent(state.token)}`);
   eventSource.onopen = () => {
+    const wasConnected = state.liveConnected;
     state.liveConnected = true;
     renderAuthControls();
+    if (!wasConnected && state.session?.role) {
+      setStatus(`Live verbunden als ${getSessionDisplayName()} (${state.session.role === "gm" ? "SL" : state.session.role}).`);
+    }
   };
   eventSource.addEventListener("state", (event) => {
+    const previousView = state.view;
     const payload = JSON.parse(event.data);
     state.session = payload.session;
     state.view = payload.view;
     state.liveConnected = true;
     renderAuthControls();
-    setStatus(`Live verbunden als ${getSessionDisplayName()} (${state.session.role === "gm" ? "SL" : state.session.role}).`);
+    applyResolvedInitiativeResults(collectResolvedInitiativeResults(previousView, state.view));
     renderView();
   });
   eventSource.addEventListener("pixels-status", (event) => {
@@ -1153,9 +1258,12 @@ function connectLiveUpdates() {
     renderPixelsMonitor();
   });
   eventSource.onerror = () => {
+    const wasConnected = state.liveConnected;
     state.liveConnected = false;
     renderAuthControls();
-    setStatus("Live-Update-Verbindung unterbrochen. Browser versucht Wiederverbindung.");
+    if (wasConnected) {
+      setStatus("Live-Update-Verbindung unterbrochen. Browser versucht Wiederverbindung.");
+    }
   };
   state.eventSource = eventSource;
 }
@@ -1279,6 +1387,20 @@ function requestManualCriticalBonusRoll(character) {
   return parsePromptNumber(response, 1, 6);
 }
 
+function rollLocalD6() {
+  return Math.floor(Math.random() * 6) + 1;
+}
+
+function rollLocalInitiative() {
+  const dice = [rollLocalD6(), rollLocalD6(), rollLocalD6()];
+  const total = dice.reduce((sum, value) => sum + value, 0);
+  return {
+    dice,
+    total,
+    critBonusRoll: total === 18 ? rollLocalD6() : null
+  };
+}
+
 async function resolvePendingManualInitiativeRolls() {
   const pendingInputs = getPendingInitiativeInputs(state.view);
   for (const input of pendingInputs) {
@@ -1329,22 +1451,28 @@ function renderInitiativeRollDialog() {
   if (!initiativeRollListEl || !initiativeRollStatusEl || !initiativeRollTitleEl) {
     return;
   }
+  if (initiativeRollCloseBtn) {
+    initiativeRollCloseBtn.hidden = state.uiSettings.autoCloseInitiativeDialog !== false;
+  }
 
   const entries = getInteractivePendingInitiativeEntries(state.view);
   const dueEvents = getDueTimedEvents(state.view);
-  if (!entries.length && !dueEvents.length) {
+  const recentResults = Array.isArray(state.recentInitiativeResults) ? state.recentInitiativeResults : [];
+  if (!entries.length && !dueEvents.length && !recentResults.length) {
     initiativeRollListEl.innerHTML = "";
-    initiativeRollTitleEl.textContent = "INI Würfelphase";
+    initiativeRollTitleEl.textContent = "Initiative würfeln";
     initiativeRollStatusEl.textContent = "Keine offenen INI-Würfe.";
     state.initiativeDialogRequested = false;
     closeInitiativeRollDialog();
     return;
   }
 
-  initiativeRollTitleEl.textContent = Number(state.view?.round || 0) > 1 ? "Nächste KR" : "Kampf starten";
-  initiativeRollStatusEl.textContent = dueEvents.length
-    ? "Fällige Ereignisse zuerst prüfen, danach manuelle Würfe eintragen und Pixels würfeln."
-    : "Trage manuelle Würfe ein und würfle für Pixels die markierten Würfel.";
+  initiativeRollTitleEl.textContent = "Initiative würfeln";
+  initiativeRollStatusEl.textContent = !entries.length && !dueEvents.length
+    ? "Alle INI-Würfe übernommen."
+    : dueEvents.length
+      ? "Fällige Ereignisse zuerst prüfen, danach manuelle Würfe eintragen und Pixels würfeln."
+      : "Trage manuelle Würfe ein und würfle für Pixels die markierten Würfel.";
   initiativeRollListEl.innerHTML = "";
 
   for (const dueEvent of dueEvents) {
@@ -1436,6 +1564,30 @@ function renderInitiativeRollDialog() {
 
     const controlsEl = document.createElement("div");
     controlsEl.className = "pixels-roll-row-controls";
+    const autoRollBtn = document.createElement("button");
+    autoRollBtn.type = "button";
+    autoRollBtn.className = "ghost";
+    autoRollBtn.textContent = "Automatisch würfeln";
+    autoRollBtn.addEventListener("click", async () => {
+      const autoRoll = rollLocalInitiative();
+      try {
+        await sendCommand({
+          type: "resolve-initiative-roll",
+          characterId: character.id,
+          total: autoRoll.total,
+          critBonusRoll: autoRoll.critBonusRoll
+        });
+        delete state.initiativeDialogInputs[String(character.id)];
+        setStatus(
+          `Automatischer INI-Wurf für ${character.name}: ${autoRoll.dice.join("+")}=${autoRoll.total}${
+            autoRoll.critBonusRoll ? `, Krit-W6=${autoRoll.critBonusRoll}` : ""
+          }.`
+        );
+      } catch (error) {
+        setStatus(`Automatischer INI-Wurf fehlgeschlagen: ${error.message}`);
+      }
+    });
+    controlsEl.appendChild(autoRollBtn);
     if (mode === "manual") {
       const inputState = getInitiativeDialogInputState(character.id);
 
@@ -1510,8 +1662,36 @@ function renderInitiativeRollDialog() {
     initiativeRollListEl.appendChild(row);
   }
 
+  for (const result of recentResults) {
+    const row = document.createElement("div");
+    row.className = "pixels-roll-row resolved";
+
+    const head = document.createElement("div");
+    head.className = "pixels-roll-row-head";
+    const nameEl = document.createElement("strong");
+    nameEl.textContent = result.name;
+    head.appendChild(nameEl);
+
+    const badgesEl = document.createElement("div");
+    badgesEl.className = "pixels-roll-row-badges";
+    badgesEl.appendChild(createInitiativeRollBadge("Übernommen", "resolved"));
+    head.appendChild(badgesEl);
+    row.appendChild(head);
+
+    const statusEl = document.createElement("p");
+    statusEl.className = "pixels-roll-row-status";
+    statusEl.textContent = result.summary;
+    row.appendChild(statusEl);
+
+    initiativeRollListEl.appendChild(row);
+  }
+
   if (state.initiativeDialogRequested || initiativeRollDialogEl?.open) {
     openInitiativeRollDialog();
+  }
+
+  if (!entries.length && !dueEvents.length && recentResults.length) {
+    scheduleInitiativeRollDialogClose();
   }
 }
 
@@ -1590,7 +1770,6 @@ function renderView() {
     turnOrderEl.innerHTML = "";
     charactersEl.innerHTML = "";
     roundStatusEl.textContent = "Kampfrunde: -";
-    rawStateEl.textContent = "{}";
     renderLogs();
     renderImportExportPanel();
     renderBluetoothDevices();
@@ -2306,7 +2485,6 @@ function renderView() {
   startRoundBtn.textContent = Number(view.round || 0) > 0 ? "Nächste KR" : "Kampf starten";
   activateCharacterUpBtn.disabled = !(view.turnEntries || []).length;
   activateCharacterDownBtn.disabled = !(view.turnEntries || []).length;
-  rawStateEl.textContent = JSON.stringify(view, null, 2);
   renderLogs();
   renderImportExportPanel();
   renderBluetoothDevices();
@@ -3069,11 +3247,13 @@ async function refreshState() {
 }
 
 async function sendCommand(command) {
+  const previousView = state.view;
   const payload = await requestJson("/api/command", {
     method: "POST",
     body: JSON.stringify(command)
   });
   state.view = payload.view;
+  applyResolvedInitiativeResults(collectResolvedInitiativeResults(previousView, state.view));
   renderView();
   for (const event of payload.events || []) {
     const message = formatRuleEvent(event);
@@ -3081,6 +3261,7 @@ async function sendCommand(command) {
       appendLogMessage(message);
     }
   }
+  return payload;
 }
 
 async function finishGmLogin(payload) {
@@ -3354,7 +3535,8 @@ forceOneColumnEl?.addEventListener("change", () => {
   applyUiSettings({
     fontScale: state.uiSettings.fontScale,
     forceOneColumn: Boolean(forceOneColumnEl.checked),
-    showSystemLogs: state.uiSettings.showSystemLogs
+    showSystemLogs: state.uiSettings.showSystemLogs,
+    autoCloseInitiativeDialog: state.uiSettings.autoCloseInitiativeDialog
   });
   persistUiSettings();
 });
@@ -3363,9 +3545,21 @@ showSystemLogsEl?.addEventListener("change", () => {
   applyUiSettings({
     fontScale: state.uiSettings.fontScale,
     forceOneColumn: state.uiSettings.forceOneColumn,
-    showSystemLogs: Boolean(showSystemLogsEl.checked)
+    showSystemLogs: Boolean(showSystemLogsEl.checked),
+    autoCloseInitiativeDialog: state.uiSettings.autoCloseInitiativeDialog
   });
   persistUiSettings();
+});
+
+autoCloseInitiativeDialogEl?.addEventListener("change", () => {
+  applyUiSettings({
+    fontScale: state.uiSettings.fontScale,
+    forceOneColumn: state.uiSettings.forceOneColumn,
+    showSystemLogs: state.uiSettings.showSystemLogs,
+    autoCloseInitiativeDialog: Boolean(autoCloseInitiativeDialogEl.checked)
+  });
+  persistUiSettings();
+  renderInitiativeRollDialog();
 });
 
 snapshotFormEl?.addEventListener("submit", async (event) => {
@@ -3542,6 +3736,7 @@ bluetoothScanBtn.addEventListener("click", async () => {
 startRoundBtn.addEventListener("click", async () => {
   try {
     state.initiativeDialogRequested = true;
+    state.recentInitiativeResults = [];
     await performTrackedCombatAction(async () => {
       await sendCommand({ type: "start-round" });
     }, Number(state.view?.round || 0) > 0 ? "Nächste KR" : "Kampf starten");
@@ -3558,6 +3753,7 @@ endCombatBtn?.addEventListener("click", async () => {
   }
   try {
     state.initiativeDialogRequested = false;
+    state.recentInitiativeResults = [];
     await performTrackedCombatAction(async () => {
       await sendCommand({ type: "end-combat" });
     }, "Kampf beenden");
@@ -3782,6 +3978,12 @@ redoActionBtn?.addEventListener("click", async () => {
 });
 
 async function init() {
+  if (addPanelEl) {
+    addPanelEl.open = false;
+  }
+  if (importExportPanelEl) {
+    importExportPanelEl.open = false;
+  }
   state.token = window.localStorage.getItem(SESSION_TOKEN_KEY);
   try {
     const persistedUiSettings = JSON.parse(window.localStorage.getItem(UI_SETTINGS_KEY) || "null");

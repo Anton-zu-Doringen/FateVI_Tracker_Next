@@ -38,6 +38,10 @@
                     Einspaltige Ansicht
                     <input id="force-one-column" type="checkbox" />
                   </label>
+                  <label class="settings-option checkbox-option">
+                    INI-Fenster automatisch schließen
+                    <input id="auto-close-initiative-dialog" type="checkbox" checked />
+                  </label>
                   <button id="reset-app-state" class="ghost" type="button">Tracker resetten</button>
                   <div class="settings-submenu settings-submenu-static">
                     <div class="settings-submenu-title">Pixels</div>
@@ -158,7 +162,7 @@
         </div>
 
         <div class="right-column">
-          <details id="panel-import-export" class="panel collapsible" open>
+          <details id="panel-import-export" class="panel collapsible">
             <summary class="collapse-head">Laden/Speichern</summary>
             <div class="collapse-body stack">
               <details class="panel-submenu" open>
@@ -231,27 +235,6 @@
             </div>
             <div class="collapse-body combat-log-body">
               <div id="combat-log" class="combat-log" aria-live="polite"></div>
-            </div>
-          </details>
-
-          <details class="panel collapsible" open>
-            <summary class="collapse-head">Pixels-Live</summary>
-            <div class="collapse-body">
-              <div class="panel-head panel-head-right">
-                <div class="actions">
-                  <button id="clear-pixels-events" class="ghost" type="button">Alte Events löschen</button>
-                </div>
-              </div>
-              <p class="hint">Serverseitig empfangene RollState-Ereignisse der überwachten Würfel.</p>
-              <ul id="pixels-monitor" class="list"></ul>
-              <ul id="pixels-events" class="list"></ul>
-            </div>
-          </details>
-
-          <details class="panel collapsible">
-            <summary class="collapse-head">Rohdaten</summary>
-            <div class="collapse-body">
-              <pre id="raw-state"></pre>
             </div>
           </details>
         </div>
@@ -373,7 +356,7 @@
 
     <dialog id="initiative-roll-dialog" class="pixels-roll-dialog">
       <div class="pixels-roll-dialog-body">
-        <h3 id="initiative-roll-title">INI Würfelphase</h3>
+        <h3 id="initiative-roll-title">Initiative würfeln</h3>
         <p id="initiative-roll-status">Warte auf Würfe…</p>
         <div id="initiative-roll-list" class="pixels-roll-list" aria-live="polite"></div>
         <div class="actions pixels-roll-dialog-actions">
@@ -435,6 +418,20 @@
             </label>
             <p id="pixels-mode-help" class="hint"></p>
             <div id="pixels-character-assignments" class="stack"></div>
+          </div>
+        </details>
+
+        <details class="panel collapsible pixels-settings-section">
+          <summary class="collapse-head">Pixels-Live</summary>
+          <div class="collapse-body">
+            <div class="panel-head panel-head-right">
+              <div class="actions">
+                <button id="clear-pixels-events" class="ghost" type="button">Alte Events löschen</button>
+              </div>
+            </div>
+            <p class="hint">Serverseitig empfangene RollState-Ereignisse der überwachten Würfel.</p>
+            <ul id="pixels-monitor" class="list"></ul>
+            <ul id="pixels-events" class="list"></ul>
           </div>
         </details>
       </form>
