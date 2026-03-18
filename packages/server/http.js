@@ -18,6 +18,7 @@ const HOST = process.env.HOST || "127.0.0.1";
 const serverState = new TrackerServer();
 const sessions = new Map();
 const eventStreams = new Map();
+const bluetoothOperations = new Map();
 const pixelsAssignments = new Map();
 const selectedPixelsDevices = new Map();
 const pendingPixelRolls = new Map();
@@ -605,6 +606,104 @@ function getSelectedPixelsPayload() {
   );
 }
 
+function deviceNameForAddress(address) {
+  return selectedPixelsDevices.get(address)?.name || bluetoothOperations.get(address)?.name || address;
+}
+
+function normalizeBluetoothDeviceName(name) {
+  return String(name || "").trim().toLowerCase();
+}
+
+function extractPixelsSeriesSuffix(name) {
+  const match = /^w\d+[a-z]?(\d+)$/i.exec(String(name || "").trim());
+  return match ? match[1] : null;
+}
+
+async function findVisibleBluetoothDeviceByName(name, seconds = 8) {
+  const normalizedName = normalizeBluetoothDeviceName(name);
+  if (!normalizedName) {
+    return null;
+  }
+  const devices = await scanBluetoothDevices(seconds);
+  const directMatch =
+    devices.find((device) => normalizeBluetoothDeviceName(device.name) === normalizedName) ||
+    devices.find((device) => normalizeBluetoothDeviceName(device.alias) === normalizedName) ||
+    null;
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const requestedSuffix = extractPixelsSeriesSuffix(name);
+  if (requestedSuffix) {
+    const suffixMatches = devices.filter((device) => {
+      const candidateName = device.name || device.alias || "";
+      return normalizeBluetoothDeviceName(candidateName).startsWith("w") && extractPixelsSeriesSuffix(candidateName) === requestedSuffix;
+    });
+    if (suffixMatches.length === 1) {
+      return suffixMatches[0];
+    }
+  }
+
+  return null;
+}
+
+async function rebindSelectedPixelsDevice(oldAddress, nextDevice) {
+  if (!oldAddress || !nextDevice?.address || oldAddress === nextDevice.address) {
+    return false;
+  }
+
+  const previousSelection = selectedPixelsDevices.get(oldAddress);
+  if (!previousSelection) {
+    return false;
+  }
+
+  selectedPixelsDevices.delete(oldAddress);
+  selectedPixelsDevices.set(nextDevice.address, {
+    address: nextDevice.address,
+    name: nextDevice.name || previousSelection.name || nextDevice.address
+  });
+
+  const previousAssignment = pixelsAssignments.get(oldAddress);
+  if (previousAssignment) {
+    pixelsAssignments.delete(oldAddress);
+    pixelsAssignments.set(nextDevice.address, previousAssignment);
+  }
+
+  pixelsConfig.sharedSet = normalizeSharedSet(pixelsConfig.sharedSet).map((address) =>
+    address === oldAddress ? nextDevice.address : address
+  );
+
+  pixelsMonitor.unwatchDevice(oldAddress);
+  forgetPixelsGatt(oldAddress);
+  rebuildPendingPixelRolls();
+  await saveRuntime();
+  broadcastPixelsEvent("pixels-selection", {
+    reason: "pixels-device-rebound",
+    selectedDevices: getSelectedPixelsPayload()
+  });
+  broadcastPixelsEvent("pixels-assignments", {
+    reason: "pixels-device-rebound",
+    assignments: getAssignmentsPayload()
+  });
+  broadcastPixelsEvent("pixels-config", {
+    reason: "pixels-device-rebound",
+    config: getPixelsConfigPayload()
+  });
+  return true;
+}
+
+async function tryPixelsGattFallback(address, name = null) {
+  const devices = await listPixelsDevices([{ address, name: name || address }]);
+  const device = devices.find((entry) => entry.address === address) || null;
+  if (!device) {
+    return null;
+  }
+  if (device.gattReady || device.writeCharacteristicPath || device.notifyCharacteristicPath || device.effectiveConnected) {
+    return device;
+  }
+  return null;
+}
+
 function getAssignedDiceAssignments(characterId) {
   return Array.from(pixelsAssignments.entries())
     .filter(([, assignment]) => assignment.characterId === characterId)
@@ -937,6 +1036,53 @@ function broadcastPixelsEvent(eventName, payload) {
     }
     sendSseEvent(response, eventName, payload);
   }
+}
+
+function getBluetoothOperationsPayload() {
+  return {
+    operations: Array.from(bluetoothOperations.values()).sort((left, right) =>
+      String(left.name || left.address).localeCompare(String(right.name || right.address), "de")
+    )
+  };
+}
+
+function broadcastBluetoothOperations(reason, extra = {}) {
+  broadcastPixelsEvent("bluetooth-operation", {
+    reason,
+    ...getBluetoothOperationsPayload(),
+    ...extra
+  });
+}
+
+function updateBluetoothOperation(address, patch = {}) {
+  const current = bluetoothOperations.get(address) || {
+    address,
+    name: patch.name || address,
+    kind: "connect",
+    status: "idle",
+    stage: "idle",
+    message: "",
+    startedAt: null,
+    updatedAt: new Date().toISOString()
+  };
+  const next = {
+    ...current,
+    ...patch,
+    address,
+    name: patch.name || current.name || address,
+    updatedAt: new Date().toISOString()
+  };
+  bluetoothOperations.set(address, next);
+  broadcastBluetoothOperations("operation-updated", { address, operation: next });
+  return next;
+}
+
+function clearBluetoothOperation(address, reason = "operation-cleared") {
+  if (!bluetoothOperations.has(address)) {
+    return;
+  }
+  bluetoothOperations.delete(address);
+  broadcastBluetoothOperations(reason, { address });
 }
 
 async function persistPixelsConfigAndBroadcast(reason = "pixels-config-updated") {
@@ -1431,6 +1577,10 @@ async function handleEvents(request, response) {
   });
   if (session.role === "gm") {
     sendSseEvent(response, "pixels-status", pixelsMonitor.getSnapshot());
+    sendSseEvent(response, "bluetooth-operation", {
+      reason: "initial-sync",
+      ...getBluetoothOperationsPayload()
+    });
     sendSseEvent(response, "pixels-config", {
       reason: "initial-sync",
       config: getPixelsConfigPayload()
@@ -1468,8 +1618,33 @@ async function handleBluetoothScan(request, response) {
     return;
   }
   const body = await readJsonBody(request);
-  const devices = await scanBluetoothDevices(body.seconds);
-  sendJson(response, 200, { devices });
+  updateBluetoothOperation("__scan__", {
+    address: "__scan__",
+    name: "Bluetooth-Scan",
+    kind: "scan",
+    status: "running",
+    stage: "scan",
+    message: "Bluetooth-Scan läuft.",
+    startedAt: new Date().toISOString()
+  });
+  try {
+    const devices = await scanBluetoothDevices(body.seconds);
+    updateBluetoothOperation("__scan__", {
+      status: "completed",
+      stage: "ready",
+      message: `${devices.length} Geräte geladen.`
+    });
+    sendJson(response, 200, { devices });
+  } catch (error) {
+    updateBluetoothOperation("__scan__", {
+      status: "failed",
+      stage: "scan",
+      message: error instanceof Error ? error.message : String(error)
+    });
+    sendError(response, 400, error instanceof Error ? error.message : String(error));
+  } finally {
+    setTimeout(() => clearBluetoothOperation("__scan__", "scan-finished"), 4000);
+  }
 }
 
 async function handleBluetoothConnect(request, response) {
@@ -1481,8 +1656,167 @@ async function handleBluetoothConnect(request, response) {
     sendError(response, 400, "missing device address");
     return;
   }
-  const device = await connectBluetoothDevice(body.address);
-  sendJson(response, 200, { device });
+  const operationStart = new Date().toISOString();
+  updateBluetoothOperation(body.address, {
+    name: body.name || body.address,
+    kind: "connect",
+    status: "running",
+    stage: "inspect",
+    message: "Verbindung wird vorbereitet.",
+    startedAt: operationStart
+  });
+  try {
+    const device = await connectBluetoothDevice(body.address, {
+      allowPairingFallback: false,
+      onProgress: (progress) => {
+        updateBluetoothOperation(body.address, {
+          name: deviceNameForAddress(body.address) || body.name || body.address,
+          kind: "connect",
+          status: progress.status === "failed" ? "failed" : "running",
+          stage: progress.stage,
+          message: progress.message || "",
+          startedAt: operationStart
+        });
+      }
+    });
+    updateBluetoothOperation(body.address, {
+      name: device.name || body.name || body.address,
+      kind: "connect",
+      status: "completed",
+      stage: "ready",
+      message: "Gerät ist verbunden."
+    });
+    sendJson(response, 200, { device });
+    setTimeout(() => clearBluetoothOperation(body.address, "connect-finished"), 5000);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      [
+        "Bluetooth-Verbindung hat nicht rechtzeitig geantwortet. Würfel aktivieren und direkt erneut verbinden.",
+        "Bluetooth-Verbindung wurde vom Würfel abgelehnt oder ist abgelaufen. Würfel aktivieren und direkt erneut verbinden.",
+        "direct connect did not establish a stable bluez link"
+      ].includes(message)
+    ) {
+      const fallbackDevice = await tryPixelsGattFallback(body.address, body.name);
+      if (fallbackDevice) {
+        updateBluetoothOperation(body.address, {
+          name: fallbackDevice.name || body.name || body.address,
+          kind: "connect",
+          status: "completed",
+          stage: "ready",
+          message: "Gerät ohne klassisches Pairing über GATT erreichbar."
+        });
+        sendJson(response, 200, { device: fallbackDevice, degradedPairing: true });
+        setTimeout(() => clearBluetoothOperation(body.address, "connect-finished"), 5000);
+        return;
+      }
+    }
+    if (
+      body.name &&
+      [
+        "device is not currently visible over BLE",
+        "device is not currently advertising over BLE",
+        "direct connect did not establish a stable bluez link"
+      ].includes(message)
+    ) {
+      updateBluetoothOperation(body.address, {
+        kind: "connect",
+        status: "running",
+        stage: "scan",
+        message: `Gemerkter Würfel nicht sichtbar. Suche ${body.name} neu.`
+      });
+      try {
+        const reboundDevice = await findVisibleBluetoothDeviceByName(body.name, 8);
+        if (!reboundDevice) {
+          throw new Error(`Kein sichtbarer BLE-Würfel mit Name ${body.name} gefunden`);
+        }
+        await rebindSelectedPixelsDevice(body.address, reboundDevice);
+        clearBluetoothOperation(body.address, "connect-rebound");
+        updateBluetoothOperation(reboundDevice.address, {
+          name: reboundDevice.name || body.name,
+          kind: "connect",
+          status: "running",
+          stage: "inspect",
+          message: `Würfel unter neuer Adresse gefunden: ${reboundDevice.address}`
+        });
+        const device = await connectBluetoothDevice(reboundDevice.address, {
+          allowPairingFallback: false,
+          onProgress: (progress) => {
+            updateBluetoothOperation(reboundDevice.address, {
+              name: reboundDevice.name || body.name || reboundDevice.address,
+              kind: "connect",
+              status: progress.status === "failed" ? "failed" : "running",
+              stage: progress.stage,
+              message: progress.message || "",
+              startedAt: operationStart
+            });
+          }
+        });
+        updateBluetoothOperation(reboundDevice.address, {
+          name: device.name || reboundDevice.name || body.name || reboundDevice.address,
+          kind: "connect",
+          status: "completed",
+          stage: "ready",
+          message: "Gerät ist verbunden."
+        });
+        sendJson(response, 200, { device, reboundFromAddress: body.address });
+        setTimeout(() => clearBluetoothOperation(reboundDevice.address, "connect-finished"), 5000);
+        return;
+      } catch (rebindError) {
+        const rebindMessage = rebindError instanceof Error ? rebindError.message : String(rebindError);
+        if (
+          [
+            "Bluetooth-Verbindung hat nicht rechtzeitig geantwortet. Würfel aktivieren und direkt erneut verbinden.",
+            "Bluetooth-Verbindung wurde vom Würfel abgelehnt oder ist abgelaufen. Würfel aktivieren und direkt erneut verbinden.",
+            "direct connect did not establish a stable bluez link"
+          ].includes(rebindMessage)
+        ) {
+          const fallbackDevice = await tryPixelsGattFallback(reboundDevice.address, reboundDevice.name || body.name);
+          if (fallbackDevice) {
+            updateBluetoothOperation(reboundDevice.address, {
+              name: fallbackDevice.name || reboundDevice.name || body.name || reboundDevice.address,
+              kind: "connect",
+              status: "completed",
+              stage: "ready",
+              message: "Gerät ohne klassisches Pairing über GATT erreichbar."
+            });
+            sendJson(response, 200, {
+              device: fallbackDevice,
+              reboundFromAddress: body.address,
+              degradedPairing: true
+            });
+            setTimeout(() => clearBluetoothOperation(reboundDevice.address, "connect-finished"), 5000);
+            return;
+          }
+        }
+        if (rebindMessage === "direct connect did not establish a stable bluez link") {
+          updateBluetoothOperation(body.address, {
+            kind: "connect",
+            status: "failed",
+            stage: "connect",
+            message: "Würfel reagiert, aber BlueZ liefert noch keinen nutzbaren Link. Erneut aufwecken und erneut verbinden."
+          });
+          sendError(response, 400, "Würfel reagiert, aber BlueZ liefert noch keinen nutzbaren Link. Erneut aufwecken und erneut verbinden.");
+          return;
+        }
+        updateBluetoothOperation(body.address, {
+          kind: "connect",
+          status: "failed",
+          stage: "scan",
+          message: rebindMessage
+        });
+        sendError(response, 400, rebindMessage);
+        return;
+      }
+    }
+    updateBluetoothOperation(body.address, {
+      kind: "connect",
+      status: "failed",
+      stage: "connect",
+      message
+    });
+    sendError(response, 400, message);
+  }
 }
 
 async function handleBluetoothDisconnect(request, response) {
@@ -1494,9 +1828,35 @@ async function handleBluetoothDisconnect(request, response) {
     sendError(response, 400, "missing device address");
     return;
   }
+  updateBluetoothOperation(body.address, {
+    name: body.name || deviceNameForAddress(body.address) || body.address,
+    kind: "disconnect",
+    status: "running",
+    stage: "disconnect",
+    message: "Gerät wird getrennt.",
+    startedAt: new Date().toISOString()
+  });
   forgetPixelsGatt(body.address);
-  const device = await disconnectBluetoothDevice(body.address);
-  sendJson(response, 200, { device });
+  try {
+    const device = await disconnectBluetoothDevice(body.address);
+    updateBluetoothOperation(body.address, {
+      name: device?.name || body.name || body.address,
+      kind: "disconnect",
+      status: "completed",
+      stage: "ready",
+      message: "Gerät ist getrennt."
+    });
+    sendJson(response, 200, { device });
+    setTimeout(() => clearBluetoothOperation(body.address, "disconnect-finished"), 4000);
+  } catch (error) {
+    updateBluetoothOperation(body.address, {
+      kind: "disconnect",
+      status: "failed",
+      stage: "disconnect",
+      message: error instanceof Error ? error.message : String(error)
+    });
+    sendError(response, 400, error instanceof Error ? error.message : String(error));
+  }
 }
 
 async function handlePixelsDevices(request, response) {

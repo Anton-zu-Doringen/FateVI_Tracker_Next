@@ -1,6 +1,17 @@
 import { execFile } from "node:child_process";
 import { connectBluetoothDevice, listBluetoothDevices } from "./bluetooth.js";
 
+function normalizeCommandError(command, error, stderr = "", stdout = "") {
+  const message = String(stderr || stdout || error?.message || "").trim();
+  if (error?.code === "ENOENT") {
+    return new Error(`${command} ist auf diesem Rechner nicht installiert oder nicht im PATH verfügbar`);
+  }
+  if (message.includes("org.bluez.Error.AuthenticationFailed")) {
+    return new Error("Bluetooth-Pairing wurde vom Würfel abgelehnt oder ist abgelaufen. Würfel aktivieren und direkt erneut koppeln.");
+  }
+  return new Error(message || `${command} fehlgeschlagen`);
+}
+
 const PIXELS_SERVICE_UUIDS = {
   modern: "a6b90001-7a5a-43f2-a962-350c8edc9b5b",
   legacy: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
@@ -47,7 +58,7 @@ function execFileAsync(command, args, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { timeout: timeoutMs }, (error, stdout, stderr) => {
       if (error) {
-        reject(new Error(stderr?.trim() || error.message));
+        reject(normalizeCommandError(command, error, stderr, stdout));
         return;
       }
       resolve({ stdout, stderr });
@@ -513,7 +524,7 @@ function decodeIdentityResponse(bytes) {
 }
 
 function isPixelsName(name) {
-  return /^(pixel|pxl)/i.test(String(name || "").trim());
+  return /^(pixel|pxl|w\d+)/i.test(String(name || "").trim());
 }
 
 export async function listPixelsDevices(selectedDevices = []) {

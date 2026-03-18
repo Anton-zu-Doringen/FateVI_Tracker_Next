@@ -6,6 +6,7 @@ const state = {
   eventSource: null,
   liveConnected: false,
   bluetoothDevices: [],
+  bluetoothOperations: [],
   pixelsDevices: [],
   pixelsMonitor: { monitors: [], recentEvents: [] },
   selectedPixelsDevices: [],
@@ -458,6 +459,41 @@ function setStatus(message) {
   renderLogs();
 }
 
+function getBluetoothOperation(address) {
+  return (state.bluetoothOperations || []).find((entry) => entry.address === address) || null;
+}
+
+function formatBluetoothStage(stage) {
+  switch (stage) {
+    case "inspect":
+      return "Pruefen";
+    case "scan":
+      return "Scan";
+    case "pair":
+      return "Pairing";
+    case "cleanup":
+      return "Reset";
+    case "trust":
+      return "Trust";
+    case "connect":
+      return "Connect";
+    case "disconnect":
+      return "Trennen";
+    case "ready":
+      return "Bereit";
+    default:
+      return "Bluetooth";
+  }
+}
+
+function renderBluetoothOperationControls() {
+  const scanOperation = getBluetoothOperation("__scan__");
+  if (bluetoothScanBtn) {
+    bluetoothScanBtn.disabled = scanOperation?.status === "running";
+    bluetoothScanBtn.textContent = scanOperation?.status === "running" ? "Scan läuft..." : "BLE-Geräte suchen";
+  }
+}
+
 function appendLogMessage(message, options = {}) {
   state.logEntries = [...state.logEntries, createLogEntry(message, { ...options, kind: "combat" }, state.logEntries)].slice(0, 60);
   renderLogs();
@@ -524,6 +560,7 @@ function clearSession() {
   state.liveConnected = false;
   state.view = null;
   state.bluetoothDevices = [];
+  state.bluetoothOperations = [];
   state.pixelsDevices = [];
   state.pixelsMonitor = { monitors: [], recentEvents: [] };
   state.selectedPixelsDevices = [];
@@ -536,6 +573,7 @@ function clearSession() {
   state.undoStack = [];
   state.redoStack = [];
   closeInitiativeRollDialog();
+  renderBluetoothOperationControls();
   renderAuthControls();
 }
 
@@ -1061,6 +1099,13 @@ function connectLiveUpdates() {
   eventSource.addEventListener("pixels-status", (event) => {
     state.pixelsMonitor = JSON.parse(event.data);
     renderPixelsMonitor();
+    renderPixelsDevices();
+  });
+  eventSource.addEventListener("bluetooth-operation", (event) => {
+    const payload = JSON.parse(event.data);
+    state.bluetoothOperations = payload.operations || [];
+    renderBluetoothOperationControls();
+    renderBluetoothDevices();
     renderPixelsDevices();
   });
   eventSource.addEventListener("pixels-roll", (event) => {
@@ -2274,6 +2319,7 @@ function renderView() {
 }
 
 function renderBluetoothDevices() {
+  renderBluetoothOperationControls();
   bluetoothDevicesEl.innerHTML = "";
   if (!state.session || state.session.role !== "gm") {
     const item = document.createElement("li");
@@ -2293,10 +2339,18 @@ function renderBluetoothDevices() {
     const item = document.createElement("li");
     item.className = "compact-device-item";
     const selectedPixel = (state.selectedPixelsDevices || []).find((entry) => entry.address === device.address);
+    const operation = getBluetoothOperation(device.address);
     const title = document.createElement("strong");
     title.className = "compact-device-name";
     title.textContent = device.name || device.address;
     item.appendChild(title);
+
+    if (operation) {
+      const progress = document.createElement("p");
+      progress.className = "character-meta";
+      progress.textContent = `${formatBluetoothStage(operation.stage)}: ${operation.message || operation.status}`;
+      item.appendChild(progress);
+    }
 
     const actions = document.createElement("div");
     actions.className = "device-actions compact-device-actions";
@@ -2305,6 +2359,7 @@ function renderBluetoothDevices() {
     selectPixelsBtn.type = "button";
     selectPixelsBtn.className = "compact-device-button";
     selectPixelsBtn.textContent = selectedPixel ? "Gemerkt" : "Merken";
+    selectPixelsBtn.disabled = operation?.status === "running";
     selectPixelsBtn.addEventListener("click", async () => {
       try {
         const payload = await requestJson("/api/pixels/selected", {
@@ -2349,6 +2404,7 @@ function renderPixelsDevices() {
   for (const device of state.pixelsDevices) {
     const item = document.createElement("li");
     const assignment = (state.pixelsAssignments || []).find((entry) => entry.address === device.address);
+    const operation = getBluetoothOperation(device.address);
 
     const title = document.createElement("strong");
     title.textContent = `${device.name} (${device.address})`;
@@ -2360,36 +2416,47 @@ function renderPixelsDevices() {
     const assignmentText = assignment?.characterId
       ? ` | Zuordnung: ${
           (state.view?.characters || []).find((entry) => entry.id === assignment.characterId)?.name || assignment.characterId
-        } / Wuerfel ${assignment.slot}`
+        } / Würfel ${assignment.slot}`
       : "";
     const effectiveConnected = Boolean(device.effectiveConnected ?? (device.connected || device.gattReady));
     meta.textContent =
-      `Verbunden: ${effectiveConnected ? "ja" : "nein"} | Bereit: ${device.gattReady ? "ja" : "nein"} | Verfuegbar: ${device.available ? "ja" : "nein"} | BlueZ verbunden: ${device.connected ? "ja" : "nein"} | Gepairt: ${device.paired ? "ja" : "nein"} | Protokoll: ${device.protocol} | Pixels-Kandidat: ${device.pixelsLikely ? "ja" : "nein"} | Watch: ${activeMonitor?.status || "aus"}${assignmentText}`;
+      `Verbunden: ${effectiveConnected ? "ja" : "nein"} | Bereit: ${device.gattReady ? "ja" : "nein"} | Verfügbar: ${device.available ? "ja" : "nein"} | BlueZ verbunden: ${device.connected ? "ja" : "nein"} | Gepairt: ${device.paired ? "ja" : "nein"} | Protokoll: ${device.protocol} | Pixels-Kandidat: ${device.pixelsLikely ? "ja" : "nein"} | Watch: ${activeMonitor?.status || "aus"}${assignmentText}`;
     item.appendChild(meta);
+
+    if (operation) {
+      const progress = document.createElement("p");
+      progress.className = "character-meta";
+      progress.textContent = `${formatBluetoothStage(operation.stage)}: ${operation.message || operation.status}`;
+      item.appendChild(progress);
+    }
 
     const actions = document.createElement("div");
     actions.className = "device-actions";
+    const needsRebind = !device.paired && !device.available;
 
     const connectBtn = document.createElement("button");
     connectBtn.type = "button";
-    connectBtn.textContent = "Verbinden";
-    connectBtn.disabled = effectiveConnected;
+    connectBtn.textContent =
+      operation?.kind === "connect" && operation?.status === "running"
+        ? "Verbinde..."
+        : needsRebind
+          ? "Neu verbinden"
+          : "Verbinden";
+    connectBtn.disabled = effectiveConnected || operation?.status === "running";
     connectBtn.addEventListener("click", async () => {
       try {
-        setStatus(`Verbinde ${device.name}...`);
+        setStatus(needsRebind ? `Neuverbinden für ${device.name} gestartet.` : `Bluetooth-Aufbau für ${device.name} gestartet.`);
         const payload = await requestJson("/api/bluetooth/connect", {
           method: "POST",
-          body: JSON.stringify({ address: device.address })
+          body: JSON.stringify({ address: device.address, name: device.name })
         });
         await loadBluetoothDevices();
         await loadPixelsDevices();
         const refreshedDevice = (state.pixelsDevices || []).find((entry) => entry.address === device.address);
-        const debug = payload.device?.debug;
-        const debugSuffix = debug
-          ? ` | pair: ${debug.pairOutput || "-"} | trust: ${debug.trustOutput || "-"} | connect: ${debug.connectOutput || "-"}`
-          : "";
-        const readiness = refreshedDevice?.gattReady ? " bereit." : " noch nicht bereit.";
-        setStatus(`${device.name} verbunden oder Pair/Trust versucht; Pixels${readiness}${debugSuffix}`);
+        const reboundPrefix = payload.reboundFromAddress ? `${device.name} neu zugeordnet und ` : `${device.name} `;
+        const readiness = refreshedDevice?.gattReady ? "Pixels bereit." : "Bluetooth verbunden, GATT folgt bei Bedarf.";
+        const pairingNote = payload.degradedPairing ? " Direkter GATT-Zugriff war ausreichend." : "";
+        setStatus(`${reboundPrefix}verbunden. ${readiness}${pairingNote}`);
       } catch (error) {
         setStatus(`Verbinden fehlgeschlagen: ${error.message}`);
       }
@@ -2398,13 +2465,13 @@ function renderPixelsDevices() {
 
     const disconnectBtn = document.createElement("button");
     disconnectBtn.type = "button";
-    disconnectBtn.textContent = "Trennen";
-    disconnectBtn.disabled = !effectiveConnected;
+    disconnectBtn.textContent = operation?.kind === "disconnect" && operation?.status === "running" ? "Trenne..." : "Trennen";
+    disconnectBtn.disabled = !effectiveConnected || operation?.status === "running";
     disconnectBtn.addEventListener("click", async () => {
       try {
         await requestJson("/api/bluetooth/disconnect", {
           method: "POST",
-          body: JSON.stringify({ address: device.address })
+          body: JSON.stringify({ address: device.address, name: device.name })
         });
         await loadBluetoothDevices();
         await loadPixelsDevices();
@@ -2418,7 +2485,7 @@ function renderPixelsDevices() {
     const identifyBtn = document.createElement("button");
     identifyBtn.type = "button";
     identifyBtn.textContent = "Identifizieren";
-    identifyBtn.disabled = false;
+    identifyBtn.disabled = operation?.status === "running";
     identifyBtn.addEventListener("click", async () => {
       try {
         const payload = await requestJson("/api/pixels/blink", {
@@ -2443,7 +2510,7 @@ function renderPixelsDevices() {
     const watchBtn = document.createElement("button");
     watchBtn.type = "button";
     watchBtn.textContent = activeMonitor ? "Watch stoppen" : "Watch starten";
-    watchBtn.disabled = false;
+    watchBtn.disabled = operation?.status === "running";
     watchBtn.addEventListener("click", async () => {
       try {
         await requestJson(activeMonitor ? "/api/pixels/watch/stop" : "/api/pixels/watch/start", {
@@ -2593,7 +2660,7 @@ function renderPixelsCharacterAssignments() {
   if (!(state.selectedPixelsDevices || []).length) {
     const note = document.createElement("p");
     note.className = "hint";
-    note.textContent = "Noch keine BLE-Geraete als Pixels gemerkt.";
+    note.textContent = "Noch keine BLE-Geräte als Pixels gemerkt.";
     pixelsCharacterAssignmentsEl.appendChild(note);
     return;
   }
@@ -2666,7 +2733,7 @@ function renderPixelsCharacterAssignments() {
 
     const clearBtn = document.createElement("button");
     clearBtn.type = "button";
-    clearBtn.textContent = "Zuordnung loeschen";
+    clearBtn.textContent = "Zuordnung löschen";
     clearBtn.addEventListener("click", async () => {
       try {
         const payload = await requestJson("/api/pixels/config", {
@@ -2681,9 +2748,9 @@ function renderPixelsCharacterAssignments() {
           sharedSet: normalizeSharedSet(payload?.config?.sharedSet)
         };
         renderPixelsCharacterAssignments();
-        setStatus("Gemeinsames Pixels-Set geloescht.");
+        setStatus("Gemeinsames Pixels-Set gelöscht.");
       } catch (error) {
-        setStatus(`Pixels-Zuordnungen konnten nicht geloescht werden: ${error.message}`);
+        setStatus(`Pixels-Zuordnungen konnten nicht gelöscht werden: ${error.message}`);
       }
     });
     controls.appendChild(clearBtn);
@@ -2785,7 +2852,7 @@ function renderPixelsCharacterAssignments() {
         }
 
         await loadPixelsAssignments();
-        setStatus(`Pixels-Zuordnungen fuer ${character.name} gespeichert.`);
+        setStatus(`Pixels-Zuordnungen für ${character.name} gespeichert.`);
       } catch (error) {
         setStatus(`Pixels-Zuordnungen fehlgeschlagen: ${error.message}`);
       }
@@ -2794,7 +2861,7 @@ function renderPixelsCharacterAssignments() {
 
     const clearBtn = document.createElement("button");
     clearBtn.type = "button";
-    clearBtn.textContent = "Zuordnung loeschen";
+    clearBtn.textContent = "Zuordnung löschen";
     clearBtn.addEventListener("click", async () => {
       try {
         for (const assignment of assignmentsForCharacter) {
@@ -2808,9 +2875,9 @@ function renderPixelsCharacterAssignments() {
           });
         }
         await loadPixelsAssignments();
-        setStatus(`Pixels-Zuordnungen fuer ${character.name} geloescht.`);
+        setStatus(`Pixels-Zuordnungen für ${character.name} gelöscht.`);
       } catch (error) {
-        setStatus(`Pixels-Zuordnungen konnten nicht geloescht werden: ${error.message}`);
+        setStatus(`Pixels-Zuordnungen konnten nicht gelöscht werden: ${error.message}`);
       }
     });
     controls.appendChild(clearBtn);
