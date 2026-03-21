@@ -27,19 +27,26 @@ const state = {
   editingCharacterId: null,
   draggedRosterCharacterId: null,
   draggedTurnCharacterId: null,
+  draggedPanelId: null,
   undoStack: [],
   redoStack: [],
   uiSettings: {
     fontScale: 1,
     forceOneColumn: false,
     showSystemLogs: true,
-    autoCloseInitiativeDialog: true
+    autoCloseInitiativeDialog: true,
+    panelOrder: {
+      left: [],
+      right: []
+    }
   }
 };
 const SESSION_TOKEN_KEY = "fatevi_tracker_next.session_token";
 const UI_SETTINGS_KEY = "fatevi_tracker_next.ui_settings";
 
 const appShellEl = document.querySelector(".app-shell");
+const leftColumnEl = document.querySelector(".left-column");
+const rightColumnEl = document.querySelector(".right-column");
 const addPanelEl = document.getElementById("panel-add");
 const importExportPanelEl = document.getElementById("panel-import-export");
 const openLoginDialogBtn = document.getElementById("open-login-dialog");
@@ -994,8 +1001,150 @@ function renderGroupSheet() {
   }
 }
 
+function setupPanelDragAndDrop() {
+  for (const columnEl of [leftColumnEl, rightColumnEl]) {
+    if (!columnEl) {
+      continue;
+    }
+    columnEl.addEventListener("dragover", (event) => {
+      const draggedPanel = state.draggedPanelId ? document.getElementById(state.draggedPanelId) : null;
+      if (!draggedPanel) {
+        return;
+      }
+      event.preventDefault();
+      columnEl.classList.add("panel-column-drop-target");
+      event.dataTransfer.dropEffect = "move";
+    });
+    columnEl.addEventListener("dragleave", (event) => {
+      if (event.currentTarget !== columnEl) {
+        return;
+      }
+      columnEl.classList.remove("panel-column-drop-target");
+    });
+    columnEl.addEventListener("drop", (event) => {
+      const draggedPanel = state.draggedPanelId ? document.getElementById(state.draggedPanelId) : null;
+      columnEl.classList.remove("panel-column-drop-target");
+      if (!draggedPanel) {
+        return;
+      }
+      event.preventDefault();
+      const targetPanel = event.target instanceof Element ? event.target.closest(".panel") : null;
+      if (targetPanel && targetPanel.parentElement === columnEl && targetPanel !== draggedPanel) {
+        const targetRect = targetPanel.getBoundingClientRect();
+        const insertAfter = event.clientY > targetRect.top + targetRect.height / 2;
+        if (insertAfter) {
+          targetPanel.after(draggedPanel);
+        } else {
+          targetPanel.before(draggedPanel);
+        }
+      } else {
+        columnEl.appendChild(draggedPanel);
+      }
+      persistCurrentPanelOrder();
+    });
+  }
+
+  for (const panel of document.querySelectorAll(".left-column > .panel[id], .right-column > .panel[id]")) {
+    panel.setAttribute("draggable", "true");
+    panel.addEventListener("dragstart", (event) => {
+      state.draggedPanelId = panel.id;
+      panel.classList.add("panel-dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", panel.id);
+    });
+    panel.addEventListener("dragend", () => {
+      panel.classList.remove("panel-dragging");
+      for (const current of document.querySelectorAll(".panel-drop-target")) {
+        current.classList.remove("panel-drop-target");
+      }
+      for (const current of document.querySelectorAll(".panel-column-drop-target")) {
+        current.classList.remove("panel-column-drop-target");
+      }
+      state.draggedPanelId = null;
+    });
+    panel.addEventListener("dragover", (event) => {
+      const draggedPanel = state.draggedPanelId ? document.getElementById(state.draggedPanelId) : null;
+      if (!draggedPanel || draggedPanel === panel) {
+        return;
+      }
+      event.preventDefault();
+      panel.classList.add("panel-drop-target");
+      event.dataTransfer.dropEffect = "move";
+    });
+    panel.addEventListener("dragleave", () => {
+      panel.classList.remove("panel-drop-target");
+    });
+    panel.addEventListener("drop", (event) => {
+      const sourceId = state.draggedPanelId;
+      const draggedPanel = sourceId ? document.getElementById(sourceId) : null;
+      panel.classList.remove("panel-drop-target");
+      if (!draggedPanel || draggedPanel === panel) {
+        return;
+      }
+      event.preventDefault();
+      const targetRect = panel.getBoundingClientRect();
+      if (event.clientY > targetRect.top + targetRect.height / 2) {
+        panel.after(draggedPanel);
+      } else {
+        panel.before(draggedPanel);
+      }
+      persistCurrentPanelOrder();
+    });
+  }
+}
+
 function persistUiSettings() {
   window.localStorage.setItem(UI_SETTINGS_KEY, JSON.stringify(state.uiSettings));
+}
+
+function getPanelIdsForColumn(columnEl) {
+  if (!columnEl) {
+    return [];
+  }
+  return Array.from(columnEl.querySelectorAll(":scope > .panel[id]")).map((panel) => panel.id);
+}
+
+function normalizePanelOrder(panelOrder) {
+  const normalized = {
+    left: Array.isArray(panelOrder?.left) ? panelOrder.left.filter(Boolean) : [],
+    right: Array.isArray(panelOrder?.right) ? panelOrder.right.filter(Boolean) : []
+  };
+  const actualLeft = getPanelIdsForColumn(leftColumnEl);
+  const actualRight = getPanelIdsForColumn(rightColumnEl);
+  normalized.left = [...normalized.left.filter((id) => actualLeft.includes(id)), ...actualLeft.filter((id) => !normalized.left.includes(id))];
+  normalized.right = [...normalized.right.filter((id) => actualRight.includes(id)), ...actualRight.filter((id) => !normalized.right.includes(id))];
+  return normalized;
+}
+
+function applyPanelOrder(panelOrder) {
+  const normalized = normalizePanelOrder(panelOrder);
+  for (const [columnEl, order] of [
+    [leftColumnEl, normalized.left],
+    [rightColumnEl, normalized.right]
+  ]) {
+    if (!columnEl) {
+      continue;
+    }
+    for (const panelId of order) {
+      const panel = document.getElementById(panelId);
+      if (panel && panel.parentElement === columnEl) {
+        columnEl.appendChild(panel);
+      }
+    }
+  }
+  return normalized;
+}
+
+function captureCurrentPanelOrder() {
+  return {
+    left: getPanelIdsForColumn(leftColumnEl),
+    right: getPanelIdsForColumn(rightColumnEl)
+  };
+}
+
+function persistCurrentPanelOrder() {
+  state.uiSettings.panelOrder = captureCurrentPanelOrder();
+  persistUiSettings();
 }
 
 function applyUiSettings(uiSettings) {
@@ -1003,7 +1152,8 @@ function applyUiSettings(uiSettings) {
   const forceOneColumn = Boolean(uiSettings?.forceOneColumn);
   const showSystemLogs = uiSettings?.showSystemLogs !== false;
   const autoCloseInitiativeDialog = uiSettings?.autoCloseInitiativeDialog !== false;
-  state.uiSettings = { fontScale, forceOneColumn, showSystemLogs, autoCloseInitiativeDialog };
+  const panelOrder = applyPanelOrder(uiSettings?.panelOrder);
+  state.uiSettings = { fontScale, forceOneColumn, showSystemLogs, autoCloseInitiativeDialog, panelOrder };
   if (appShellEl) {
     appShellEl.style.zoom = String(fontScale);
     const supportsZoom = typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("zoom", "1");
@@ -4278,6 +4428,7 @@ async function init() {
   } catch {
     applyUiSettings(state.uiSettings);
   }
+  setupPanelDragAndDrop();
   state.bootstrap = await requestJson("/api/bootstrap");
   renderBootstrap();
   if (state.token) {

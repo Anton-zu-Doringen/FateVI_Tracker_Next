@@ -329,6 +329,26 @@ h1 {
   box-shadow: 0 10px 20px rgba(44, 25, 8, 0.08);
 }
 
+.left-column > .panel,
+.right-column > .panel {
+  cursor: grab;
+}
+
+.left-column.panel-column-drop-target,
+.right-column.panel-column-drop-target {
+  outline: 2px dashed rgba(188, 53, 35, 0.35);
+  outline-offset: 8px;
+  border-radius: 18px;
+}
+
+.panel.panel-dragging {
+  opacity: 0.6;
+}
+
+.panel.panel-drop-target {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
 .collapsible {
   padding: 0.6rem 1rem 1rem;
   position: relative;
