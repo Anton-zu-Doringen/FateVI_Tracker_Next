@@ -22,6 +22,14 @@ const bluetoothOperations = new Map();
 const pixelsAssignments = new Map();
 const selectedPixelsDevices = new Map();
 const pendingPixelRolls = new Map();
+const pendingGroupSheetRoll = {
+  status: "idle",
+  source: null,
+  assignedDice: [],
+  results: [],
+  acceptedAtByAddress: new Map(),
+  createdAt: null
+};
 const armedPixelsRolls = new Map();
 const gmAccounts = new Map();
 const gmLibraries = new Map();
@@ -42,7 +50,8 @@ const PIXELS_MODE = {
 };
 const pixelsConfig = {
   mode: PIXELS_MODE.PC_SET_3,
-  sharedSet: [null, null, null]
+  sharedSet: [null, null, null],
+  gmSet: [null, null, null]
 };
 const pixelsMonitor = createPixelsMonitorManager({
   onEvent: (event) => {
@@ -146,6 +155,7 @@ async function loadRuntime() {
     }
     pixelsConfig.mode = normalizePixelsMode(payload?.pixelsConfig?.mode);
     pixelsConfig.sharedSet = normalizeSharedSet(payload?.pixelsConfig?.sharedSet);
+    pixelsConfig.gmSet = normalizeSharedSet(payload?.pixelsConfig?.gmSet);
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
       return;
@@ -454,6 +464,7 @@ function applyPixelsSnapshotState(snapshotPixelsState) {
 
   pixelsConfig.mode = normalizePixelsMode(snapshotPixelsState?.config?.mode);
   pixelsConfig.sharedSet = normalizeSharedSet(snapshotPixelsState?.config?.sharedSet);
+  pixelsConfig.gmSet = normalizeSharedSet(snapshotPixelsState?.config?.gmSet);
 }
 
 function createCharacterId(name, type) {
@@ -547,10 +558,37 @@ function normalizeSharedSet(value) {
   });
 }
 
+function resetPendingGroupSheetRoll() {
+  pendingGroupSheetRoll.status = "idle";
+  pendingGroupSheetRoll.source = null;
+  pendingGroupSheetRoll.assignedDice = [];
+  pendingGroupSheetRoll.results = [];
+  pendingGroupSheetRoll.acceptedAtByAddress = new Map();
+  pendingGroupSheetRoll.createdAt = null;
+}
+
+function getPendingGroupSheetRollPayload() {
+  return {
+    status: pendingGroupSheetRoll.status,
+    source: pendingGroupSheetRoll.source,
+    assignedDice: Array.isArray(pendingGroupSheetRoll.assignedDice) ? pendingGroupSheetRoll.assignedDice : [],
+    collected: Array.isArray(pendingGroupSheetRoll.results)
+      ? pendingGroupSheetRoll.results.map((entry, index) => ({
+          address: entry.address,
+          slot: entry.slot,
+          label: entry.slot ? `W${entry.slot}` : `W${index + 1}`,
+          value: entry.value
+        }))
+      : [],
+    createdAt: pendingGroupSheetRoll.createdAt
+  };
+}
+
 function getPixelsConfigPayload() {
   return {
     mode: normalizePixelsMode(pixelsConfig.mode),
-    sharedSet: normalizeSharedSet(pixelsConfig.sharedSet)
+    sharedSet: normalizeSharedSet(pixelsConfig.sharedSet),
+    gmSet: normalizeSharedSet(pixelsConfig.gmSet)
   };
 }
 
@@ -585,6 +623,52 @@ function getSharedSlotForAddress(address) {
     return null;
   }
   return index + 1;
+}
+
+function getGmSetSlotForAddress(address) {
+  const gmSet = normalizeSharedSet(pixelsConfig.gmSet);
+  const index = gmSet.findIndex((entry) => entry === address);
+  if (index < 0) {
+    return null;
+  }
+  return index + 1;
+}
+
+function getConfiguredGroupSheetDice() {
+  const gmSet = normalizeSharedSet(pixelsConfig.gmSet)
+    .map((address, index) => ({
+      address,
+      slot: index + 1,
+      label: `W${index + 1}`
+    }))
+    .filter((entry) => Boolean(entry.address));
+  if (gmSet.length === 3) {
+    return { source: "gm-set", assignedDice: gmSet };
+  }
+
+  const sharedSet = normalizeSharedSet(pixelsConfig.sharedSet)
+    .map((address, index) => ({
+      address,
+      slot: index + 1,
+      label: `W${index + 1}`
+    }))
+    .filter((entry) => Boolean(entry.address));
+  if (!pendingPixelRolls.size && sharedSet.length === 3) {
+    return { source: "shared-set", assignedDice: sharedSet };
+  }
+
+  return { source: null, assignedDice: [] };
+}
+
+async function ensureGroupSheetPixelsWatches() {
+  const { assignedDice } = getConfiguredGroupSheetDice();
+  for (const die of assignedDice) {
+    try {
+      await pixelsMonitor.watchDevice(die.address);
+    } catch {
+      // keep server resilient; watch failures are surfaced through monitor status
+    }
+  }
 }
 
 function getAssignmentsPayload() {
@@ -672,6 +756,9 @@ async function rebindSelectedPixelsDevice(oldAddress, nextDevice) {
   }
 
   pixelsConfig.sharedSet = normalizeSharedSet(pixelsConfig.sharedSet).map((address) =>
+    address === oldAddress ? nextDevice.address : address
+  );
+  pixelsConfig.gmSet = normalizeSharedSet(pixelsConfig.gmSet).map((address) =>
     address === oldAddress ? nextDevice.address : address
   );
 
@@ -1509,8 +1596,10 @@ async function handleAppReset(request, response) {
   }
   serverState.resetState();
   pendingPixelRolls.clear();
+  resetPendingGroupSheetRoll();
   await saveRuntime();
   broadcastStateUpdate("app-reset");
+  broadcastPixelsEvent("group-sheet-roll", getPendingGroupSheetRollPayload());
   sendJson(response, 200, {
     session,
     view: serverState.getStateForSession(session),
@@ -1595,6 +1684,7 @@ async function handleEvents(request, response) {
       reason: "initial-sync",
       selectedDevices: getSelectedPixelsPayload()
     });
+    sendSseEvent(response, "group-sheet-roll", getPendingGroupSheetRollPayload());
   }
 
   const keepAliveId = setInterval(() => {
@@ -1898,6 +1988,8 @@ async function handleSelectedPixelsUpdate(request, response) {
   } else {
     selectedPixelsDevices.delete(body.address);
     pixelsAssignments.delete(body.address);
+    pixelsConfig.sharedSet = normalizeSharedSet(pixelsConfig.sharedSet).map((address) => (address === body.address ? null : address));
+    pixelsConfig.gmSet = normalizeSharedSet(pixelsConfig.gmSet).map((address) => (address === body.address ? null : address));
     pixelsMonitor.unwatchDevice(body.address);
   }
 
@@ -1905,6 +1997,7 @@ async function handleSelectedPixelsUpdate(request, response) {
   await persistSelectedPixelsAndBroadcast(body.selected ? "pixels-selected" : "pixels-deselected");
   if (!body.selected) {
     await persistPixelsAssignmentsAndBroadcast("pixels-assignment-pruned");
+    await persistPixelsConfigAndBroadcast("pixels-config-pruned");
   }
   sendJson(response, 200, { selectedDevices: getSelectedPixelsPayload() });
 }
@@ -1947,6 +2040,38 @@ async function handlePixelsMonitorState(request, response) {
   sendJson(response, 200, pixelsMonitor.getSnapshot());
 }
 
+async function handleGroupSheetRoll(request, response) {
+  if (!requireGmSession(request, response)) {
+    return;
+  }
+  const { source, assignedDice } = getConfiguredGroupSheetDice();
+  if (!source || assignedDice.length < 3) {
+    sendError(response, 400, "kein passendes Pixels-Set für das Gruppencharakterblatt konfiguriert");
+    return;
+  }
+
+  resetPendingGroupSheetRoll();
+  pendingGroupSheetRoll.status = "pending";
+  pendingGroupSheetRoll.source = source;
+  pendingGroupSheetRoll.assignedDice = assignedDice;
+  pendingGroupSheetRoll.createdAt = new Date().toISOString();
+
+  for (const die of assignedDice) {
+    try {
+      await pixelsMonitor.watchDevice(die.address);
+    } catch {
+      // ignore and allow later retries through normal monitor flow
+    }
+  }
+
+  broadcastPixelsEvent("group-sheet-roll", getPendingGroupSheetRollPayload());
+  broadcastPixelsEvent("pixels-status", pixelsMonitor.getSnapshot());
+  sendJson(response, 200, {
+    mode: "pixels",
+    pendingRoll: getPendingGroupSheetRollPayload()
+  });
+}
+
 async function handlePixelsAssignments(request, response) {
   if (!requireGmSession(request, response)) {
     return;
@@ -1979,7 +2104,11 @@ async function handlePixelsConfigUpdate(request, response) {
   if (body.sharedSet !== undefined && nextMode === PIXELS_MODE.SHARED_SET_3) {
     pixelsConfig.sharedSet = normalizeSharedSet(body.sharedSet);
   }
+  if (body.gmSet !== undefined) {
+    pixelsConfig.gmSet = normalizeSharedSet(body.gmSet);
+  }
   rebuildPendingPixelRolls();
+  await ensureGroupSheetPixelsWatches();
   await persistPixelsAssignmentsAndBroadcast("pixels-assignments-reset-for-mode");
   await persistPixelsConfigAndBroadcast("pixels-config-saved");
   sendJson(response, 200, { config: getPixelsConfigPayload() });
@@ -2083,6 +2212,55 @@ async function handlePixelsRollIntegration(event) {
       reason: "not-armed"
     });
     return;
+  }
+
+  if (pendingGroupSheetRoll.status !== "pending") {
+    const { source, assignedDice } = getConfiguredGroupSheetDice();
+    if (source && assignedDice.some((entry) => entry.address === event.address)) {
+      pendingGroupSheetRoll.status = "pending";
+      pendingGroupSheetRoll.source = source;
+      pendingGroupSheetRoll.assignedDice = assignedDice;
+      pendingGroupSheetRoll.results = [];
+      pendingGroupSheetRoll.acceptedAtByAddress = new Map();
+      pendingGroupSheetRoll.createdAt = new Date().toISOString();
+      broadcastPixelsEvent("group-sheet-roll", getPendingGroupSheetRollPayload());
+    }
+  }
+
+  if (pendingGroupSheetRoll.status === "pending") {
+    const assignedEntry = (pendingGroupSheetRoll.assignedDice || []).find((entry) => entry.address === event.address) || null;
+    if (assignedEntry) {
+      const lastAcceptedAt = pendingGroupSheetRoll.acceptedAtByAddress.get(event.address);
+      if (!lastAcceptedAt || now - lastAcceptedAt >= PIXELS_ROLL_DEBOUNCE_MS) {
+        armedPixelsRolls.delete(event.address);
+        pendingGroupSheetRoll.acceptedAtByAddress.set(event.address, now);
+        if (!pendingGroupSheetRoll.results.some((entry) => entry.slot === assignedEntry.slot)) {
+          pendingGroupSheetRoll.results.push({
+            address: event.address,
+            slot: assignedEntry.slot,
+            value: faceValue
+          });
+          broadcastPixelsEvent("group-sheet-roll", getPendingGroupSheetRollPayload());
+          if (pendingGroupSheetRoll.results.length >= 3) {
+            const faces = pendingGroupSheetRoll.assignedDice
+              .map((entry) => pendingGroupSheetRoll.results.find((result) => result.slot === entry.slot)?.value ?? null)
+              .filter((value) => Number.isInteger(value));
+            if (faces.length >= 3) {
+              const total = faces.slice(0, 3).reduce((sum, value) => sum + value, 0);
+              const source = pendingGroupSheetRoll.source;
+              resetPendingGroupSheetRoll();
+              broadcastPixelsEvent("group-sheet-roll", {
+                status: "resolved",
+                source,
+                faces: faces.slice(0, 3),
+                total
+              });
+            }
+          }
+        }
+      }
+      return;
+    }
   }
 
   let pendingRoll = null;
@@ -2356,6 +2534,10 @@ async function handleRequest(request, response) {
     await handleAppReset(request, response);
     return;
   }
+  if (request.method === "POST" && url.pathname === "/api/group-sheet/roll") {
+    await handleGroupSheetRoll(request, response);
+    return;
+  }
   if (request.method === "GET" && url.pathname === "/api/events") {
     await handleEvents(request, response);
     return;
@@ -2449,6 +2631,7 @@ export async function startHttpServer(port = PORT) {
 
   httpServer.listen(port, HOST, () => {
     console.log(`FateVI Tracker Next listening on http://${HOST}:${port}`);
+    void ensureGroupSheetPixelsWatches();
   });
   return httpServer;
 }

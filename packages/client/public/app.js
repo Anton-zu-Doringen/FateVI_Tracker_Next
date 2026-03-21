@@ -11,12 +11,17 @@ const state = {
   pixelsMonitor: { monitors: [], recentEvents: [] },
   selectedPixelsDevices: [],
   pixelsAssignments: [],
-  pixelsConfig: { mode: "pc-set-3", sharedSet: [null, null, null] },
+  pixelsConfig: { mode: "pc-set-3", sharedSet: [null, null, null], gmSet: [null, null, null] },
   pixelsRollProgress: [],
   library: { snapshots: [], groups: [] },
   initiativeDialogRequested: false,
   initiativeDialogInputs: {},
   recentInitiativeResults: [],
+  groupSheet: {
+    sharedRoll: null,
+    pendingRoll: null,
+    characters: {}
+  },
   logEntries: [],
   minimizedCharacterIds: [],
   editingCharacterId: null,
@@ -69,6 +74,9 @@ const eventFormEl = document.getElementById("event-form");
 const eventDescriptionEl = document.getElementById("event-description");
 const eventDueOffsetEl = document.getElementById("event-due-offset");
 const eventsEl = document.getElementById("events");
+const groupSheetRollBtn = document.getElementById("group-sheet-roll");
+const groupSheetRollSummaryEl = document.getElementById("group-sheet-roll-summary");
+const groupSheetBodyEl = document.getElementById("group-sheet-body");
 const loginHintEl = document.getElementById("login-hint");
 const sessionStatusEl = document.getElementById("session-status");
 const refreshStateBtn = document.getElementById("refresh-state");
@@ -572,7 +580,7 @@ function clearSession() {
   state.pixelsMonitor = { monitors: [], recentEvents: [] };
   state.selectedPixelsDevices = [];
   state.pixelsAssignments = [];
-  state.pixelsConfig = { mode: PIXELS_MODE.PC_SET_3, sharedSet: [null, null, null] };
+  state.pixelsConfig = normalizePixelsConfig({ mode: PIXELS_MODE.PC_SET_3, sharedSet: [null, null, null], gmSet: [null, null, null] });
   state.pixelsRollProgress = [];
   state.library = { snapshots: [], groups: [] };
   state.initiativeDialogRequested = false;
@@ -840,6 +848,152 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function parseGroupSheetValue(value) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) {
+    return "";
+  }
+  const parsed = Number(normalized.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : "";
+}
+
+function getGroupSheetCharacterState(characterId) {
+  const key = String(characterId);
+  if (!state.groupSheet.characters[key]) {
+    state.groupSheet.characters[key] = {
+      wahrnehmen: "",
+      einschaetzen: "",
+      orientierung: ""
+    };
+  }
+  return state.groupSheet.characters[key];
+}
+
+function computeGroupSheetResult(skillValue) {
+  if (!Number.isFinite(Number(skillValue)) || !state.groupSheet.sharedRoll) {
+    return "";
+  }
+  return Number(skillValue) + Number(state.groupSheet.sharedRoll.total);
+}
+
+function getGroupSheetPenaltyLabel(character, view) {
+  const detail = getCharacterDetail(character);
+  if (!detail) {
+    return "";
+  }
+  const damagePenalty = computeDamagePenalty(detail);
+  const dazedPenalty = isCharacterDazed(detail, Number(view?.round || 0)) ? 3 : 0;
+  const effectiveQmPenalty = damagePenalty.qm + dazedPenalty;
+  if (effectiveQmPenalty <= 0 && damagePenalty.bew <= 0) {
+    return "";
+  }
+  return `QM/BEW -${effectiveQmPenalty}/-${damagePenalty.bew}`;
+}
+
+function renderGroupSheet() {
+  if (!groupSheetBodyEl || !groupSheetRollSummaryEl) {
+    return;
+  }
+  const pcs = (state.view?.characters || []).filter((character) => character.type === "PC");
+  if (!pcs.length) {
+    groupSheetBodyEl.innerHTML = '<p class="empty">Keine SC vorhanden.</p>';
+    groupSheetRollSummaryEl.textContent = "Noch kein Gruppenwurf.";
+    if (groupSheetRollBtn) {
+      groupSheetRollBtn.disabled = true;
+    }
+    return;
+  }
+
+  if (groupSheetRollBtn) {
+    groupSheetRollBtn.disabled = false;
+  }
+  if (state.groupSheet.pendingRoll?.status === "pending") {
+    const assignedDice = Array.isArray(state.groupSheet.pendingRoll.assignedDice) ? state.groupSheet.pendingRoll.assignedDice : [];
+    const collected = Array.isArray(state.groupSheet.pendingRoll.collected) ? state.groupSheet.pendingRoll.collected : [];
+    const sourceLabel = state.groupSheet.pendingRoll.source === "shared-set" ? "gemeinsames 3er-Set" : "SL-Set";
+    const collectedText = collected.length
+      ? ` Bereits erkannt: ${collected.map((entry) => `${entry.label}: ${entry.value}`).join(", ")}.`
+      : "";
+    groupSheetRollSummaryEl.textContent = `Warte auf Pixels-Wurf über ${sourceLabel}: ${assignedDice.map((entry) => entry.label).join(", ")}.${collectedText}`;
+  } else if (state.groupSheet.sharedRoll?.dice?.length === 3) {
+    groupSheetRollSummaryEl.textContent = `Gruppenwurf: ${state.groupSheet.sharedRoll.dice.join(" + ")} = ${state.groupSheet.sharedRoll.total}`;
+  } else {
+    groupSheetRollSummaryEl.textContent = "Noch kein Gruppenwurf.";
+  }
+
+  groupSheetBodyEl.innerHTML = "";
+  for (const character of pcs) {
+    const section = document.createElement("article");
+    section.className = "group-sheet-character";
+
+    const table = document.createElement("table");
+    table.className = "group-sheet-table";
+    const body = document.createElement("tbody");
+
+    const titleRow = document.createElement("tr");
+    titleRow.className = "group-sheet-character-row";
+    const titleCell = document.createElement("td");
+    titleCell.className = "group-sheet-character-cell";
+    titleCell.colSpan = 4;
+    titleCell.textContent = character.name;
+    titleRow.appendChild(titleCell);
+    body.appendChild(titleRow);
+
+    for (const [skillKey, skillLabel] of [
+      ["wahrnehmen", "Wahrnehmen"],
+      ["einschaetzen", "Einschätzen"],
+      ["orientierung", "Orientierung"]
+    ]) {
+      const characterState = getGroupSheetCharacterState(character.id);
+      const row = document.createElement("tr");
+
+      const labelCell = document.createElement("td");
+      labelCell.className = "group-sheet-skill-label";
+      labelCell.textContent = skillLabel;
+      row.appendChild(labelCell);
+
+      const inputCell = document.createElement("td");
+      const input = document.createElement("input");
+      input.type = "number";
+      input.step = "1";
+      input.value = characterState[skillKey] === "" ? "" : String(characterState[skillKey]);
+      const commitGroupSheetValue = () => {
+        characterState[skillKey] = parseGroupSheetValue(input.value);
+        renderGroupSheet();
+      };
+      input.addEventListener("change", commitGroupSheetValue);
+      input.addEventListener("blur", commitGroupSheetValue);
+      inputCell.appendChild(input);
+      row.appendChild(inputCell);
+
+      const resultCell = document.createElement("td");
+      const resultInput = document.createElement("input");
+      resultInput.type = "text";
+      resultInput.readOnly = true;
+      const result = computeGroupSheetResult(characterState[skillKey]);
+      resultInput.value = result === "" ? "" : String(result);
+      resultCell.appendChild(resultInput);
+      row.appendChild(resultCell);
+
+      const penaltyCell = document.createElement("td");
+      const penaltyLabel = getGroupSheetPenaltyLabel(character, state.view);
+      if (penaltyLabel) {
+        const penaltyChip = document.createElement("span");
+        penaltyChip.className = "group-sheet-penalty-chip";
+        penaltyChip.textContent = penaltyLabel;
+        penaltyCell.appendChild(penaltyChip);
+      }
+      row.appendChild(penaltyCell);
+
+      body.appendChild(row);
+    }
+
+    table.appendChild(body);
+    section.appendChild(table);
+    groupSheetBodyEl.appendChild(section);
+  }
+}
+
 function persistUiSettings() {
   window.localStorage.setItem(UI_SETTINGS_KEY, JSON.stringify(state.uiSettings));
 }
@@ -997,6 +1151,14 @@ function normalizeSharedSet(value) {
     const entry = Array.isArray(value) ? value[index] : null;
     return typeof entry === "string" && entry ? entry : "";
   });
+}
+
+function normalizePixelsConfig(value) {
+  return {
+    mode: normalizePixelsMode(value?.mode),
+    sharedSet: normalizeSharedSet(value?.sharedSet),
+    gmSet: normalizeSharedSet(value?.gmSet)
+  };
 }
 
 function getPixelsModeDescription(mode) {
@@ -1237,10 +1399,7 @@ function connectLiveUpdates() {
   });
   eventSource.addEventListener("pixels-config", (event) => {
     const payload = JSON.parse(event.data);
-    state.pixelsConfig = {
-      mode: normalizePixelsMode(payload?.config?.mode),
-      sharedSet: normalizeSharedSet(payload?.config?.sharedSet)
-    };
+    state.pixelsConfig = normalizePixelsConfig(payload?.config);
     renderPixelsDevices();
     renderPixelsCharacterAssignments();
   });
@@ -1256,6 +1415,23 @@ function connectLiveUpdates() {
     const payload = JSON.parse(event.data);
     state.pixelsRollProgress = (state.pixelsRollProgress || []).filter((entry) => entry.characterId !== payload.characterId);
     renderPixelsMonitor();
+  });
+  eventSource.addEventListener("group-sheet-roll", (event) => {
+    const payload = JSON.parse(event.data);
+    if (payload?.status === "pending") {
+      state.groupSheet.pendingRoll = payload;
+      state.groupSheet.sharedRoll = null;
+    } else if (payload?.status === "resolved") {
+      state.groupSheet.pendingRoll = null;
+      state.groupSheet.sharedRoll = {
+        dice: Array.isArray(payload.faces) ? payload.faces.slice(0, 3) : [],
+        total: Number(payload.total) || 0
+      };
+      setStatus(`Gruppencharakterblatt gewürfelt: ${(payload.faces || []).join("+")}=${payload.total}.`);
+    } else if (payload?.status === "idle" || payload?.status === "cancelled") {
+      state.groupSheet.pendingRoll = null;
+    }
+    renderGroupSheet();
   });
   eventSource.onerror = () => {
     const wasConnected = state.liveConnected;
@@ -1777,6 +1953,7 @@ function renderView() {
     renderPixelsCharacterAssignments();
     renderPixelsMonitor();
     renderTimedEvents();
+    renderGroupSheet();
     renderInitiativeRollDialog();
     if (toggleAllPcSurprisedEl) {
       toggleAllPcSurprisedEl.checked = false;
@@ -2492,6 +2669,7 @@ function renderView() {
   renderPixelsCharacterAssignments();
   renderPixelsMonitor();
   renderTimedEvents();
+  renderGroupSheet();
   renderInitiativeRollDialog();
   updateHistoryButtons();
 }
@@ -2770,6 +2948,12 @@ function getReservedPixelAddresses(exclusions = []) {
     }
   }
 
+  for (const address of normalizeSharedSet(state.pixelsConfig?.gmSet)) {
+    if (address && !excludedSet.has(address)) {
+      reserved.add(address);
+    }
+  }
+
   return reserved;
 }
 
@@ -2843,6 +3027,95 @@ function renderPixelsCharacterAssignments() {
     return;
   }
 
+  const gmSetRow = document.createElement("article");
+  gmSetRow.className = "character-card";
+
+  const gmTitle = document.createElement("strong");
+  gmTitle.textContent = "Spielleiter";
+  gmSetRow.appendChild(gmTitle);
+
+  const gmHint = document.createElement("p");
+  gmHint.className = "hint";
+  gmHint.textContent =
+    "Dieses 3er-Set wird für das Gruppencharakterblatt genutzt. Ohne eigenes SL-Set wird ersatzweise das gemeinsame 3er-Set genutzt, solange keine Initiative-Pixelswürfe offen sind.";
+  gmSetRow.appendChild(gmHint);
+
+  const gmControls = document.createElement("div");
+  gmControls.className = "device-actions";
+  const gmSelections = [];
+  const gmSet = normalizeSharedSet(state.pixelsConfig?.gmSet);
+  for (const slot of [1, 2, 3]) {
+    const select = buildPixelsDeviceSelect(slot, gmSet[slot - 1] || "");
+    select.addEventListener("change", () => {
+      for (const currentEntry of gmSelections) {
+        const currentValue = currentEntry.select.value || "";
+        const siblingValues = gmSelections
+          .filter((entry) => entry !== currentEntry)
+          .map((entry) => entry.select.value)
+          .filter(Boolean);
+        const reserved = getReservedPixelAddresses([currentValue, ...siblingValues]);
+        for (const option of currentEntry.select.options) {
+          if (!option.value) {
+            option.disabled = false;
+            continue;
+          }
+          const usedInGmSet = siblingValues.includes(option.value);
+          const usedElsewhere = reserved.has(option.value) && option.value !== currentValue;
+          option.disabled = usedInGmSet || usedElsewhere;
+        }
+      }
+    });
+    gmSelections.push({ slot, select });
+    gmControls.appendChild(select);
+  }
+  gmSelections[0]?.select.dispatchEvent(new Event("change"));
+
+  const gmSaveBtn = document.createElement("button");
+  gmSaveBtn.type = "button";
+  gmSaveBtn.textContent = "Zuordnungen speichern";
+  gmSaveBtn.addEventListener("click", async () => {
+    try {
+      const payload = await requestJson("/api/pixels/config", {
+        method: "POST",
+        body: JSON.stringify({
+          mode: pixelsMode,
+          sharedSet: normalizeSharedSet(state.pixelsConfig?.sharedSet),
+          gmSet: gmSelections.map((entry) => entry.select.value || null)
+        })
+      });
+      state.pixelsConfig = normalizePixelsConfig(payload?.config);
+      renderPixelsCharacterAssignments();
+      setStatus("SL-Pixels-Set gespeichert.");
+    } catch (error) {
+      setStatus(`SL-Pixels-Set fehlgeschlagen: ${error.message}`);
+    }
+  });
+  gmControls.appendChild(gmSaveBtn);
+
+  const gmClearBtn = document.createElement("button");
+  gmClearBtn.type = "button";
+  gmClearBtn.textContent = "Zuordnung löschen";
+  gmClearBtn.addEventListener("click", async () => {
+    try {
+      const payload = await requestJson("/api/pixels/config", {
+        method: "POST",
+        body: JSON.stringify({
+          mode: pixelsMode,
+          sharedSet: normalizeSharedSet(state.pixelsConfig?.sharedSet),
+          gmSet: [null, null, null]
+        })
+      });
+      state.pixelsConfig = normalizePixelsConfig(payload?.config);
+      renderPixelsCharacterAssignments();
+      setStatus("SL-Pixels-Set gelöscht.");
+    } catch (error) {
+      setStatus(`SL-Pixels-Set konnte nicht gelöscht werden: ${error.message}`);
+    }
+  });
+  gmControls.appendChild(gmClearBtn);
+  gmSetRow.appendChild(gmControls);
+  pixelsCharacterAssignmentsEl.appendChild(gmSetRow);
+
   if (pixelsMode === PIXELS_MODE.SHARED_SET_3) {
     const row = document.createElement("article");
     row.className = "character-card";
@@ -2894,13 +3167,11 @@ function renderPixelsCharacterAssignments() {
           method: "POST",
           body: JSON.stringify({
             mode: pixelsMode,
-            sharedSet: sharedSetPayload
+            sharedSet: sharedSetPayload,
+            gmSet: normalizeSharedSet(state.pixelsConfig?.gmSet)
           })
         });
-        state.pixelsConfig = {
-          mode: normalizePixelsMode(payload?.config?.mode),
-          sharedSet: normalizeSharedSet(payload?.config?.sharedSet)
-        };
+        state.pixelsConfig = normalizePixelsConfig(payload?.config);
         renderPixelsCharacterAssignments();
         setStatus("Gemeinsames Pixels-Set gespeichert.");
       } catch (error) {
@@ -2918,13 +3189,11 @@ function renderPixelsCharacterAssignments() {
           method: "POST",
           body: JSON.stringify({
             mode: pixelsMode,
-            sharedSet: [null, null, null]
+            sharedSet: [null, null, null],
+            gmSet: normalizeSharedSet(state.pixelsConfig?.gmSet)
           })
         });
-        state.pixelsConfig = {
-          mode: normalizePixelsMode(payload?.config?.mode),
-          sharedSet: normalizeSharedSet(payload?.config?.sharedSet)
-        };
+        state.pixelsConfig = normalizePixelsConfig(payload?.config);
         renderPixelsCharacterAssignments();
         setStatus("Gemeinsames Pixels-Set gelöscht.");
       } catch (error) {
@@ -3194,15 +3463,12 @@ async function loadPixelsAssignments() {
 
 async function loadPixelsConfig() {
   if (!state.token) {
-    state.pixelsConfig = { mode: PIXELS_MODE.PC_SET_3, sharedSet: [null, null, null] };
+    state.pixelsConfig = normalizePixelsConfig({ mode: PIXELS_MODE.PC_SET_3, sharedSet: [null, null, null], gmSet: [null, null, null] });
     renderPixelsCharacterAssignments();
     return;
   }
   const payload = await requestJson("/api/pixels/config");
-  state.pixelsConfig = {
-    mode: normalizePixelsMode(payload?.config?.mode),
-    sharedSet: normalizeSharedSet(payload?.config?.sharedSet)
-  };
+  state.pixelsConfig = normalizePixelsConfig(payload?.config);
   renderPixelsCharacterAssignments();
 }
 
@@ -3562,6 +3828,32 @@ autoCloseInitiativeDialogEl?.addEventListener("change", () => {
   renderInitiativeRollDialog();
 });
 
+groupSheetRollBtn?.addEventListener("click", async () => {
+  try {
+    const payload = await requestJson("/api/group-sheet/roll", {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+    if (payload?.mode === "pixels") {
+      state.groupSheet.pendingRoll = payload.pendingRoll || null;
+      state.groupSheet.sharedRoll = null;
+      renderGroupSheet();
+      setStatus(
+        `Gruppencharakterblatt wartet auf Pixels-Wurf über ${payload.pendingRoll?.source === "shared-set" ? "gemeinsames Set" : "SL-Set"}.`
+      );
+      return;
+    }
+  } catch (error) {
+    setStatus(`Pixels-Gruppenwurf nicht verfügbar: ${error.message}. Es wird lokal gewürfelt.`);
+  }
+  const dice = [rollLocalD6(), rollLocalD6(), rollLocalD6()];
+  const total = dice.reduce((sum, value) => sum + value, 0);
+  state.groupSheet.pendingRoll = null;
+  state.groupSheet.sharedRoll = { dice, total };
+  renderGroupSheet();
+  setStatus(`Gruppencharakterblatt gewürfelt: ${dice.join("+")}=${total}.`);
+});
+
 snapshotFormEl?.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
@@ -3695,12 +3987,9 @@ resetAppStateBtn?.addEventListener("click", async () => {
     state.minimizedCharacterIds = [];
     state.pixelsAssignments = payload.assignments || state.pixelsAssignments;
     state.selectedPixelsDevices = payload.selectedDevices || state.selectedPixelsDevices;
-    state.pixelsConfig = payload.config
-      ? {
-          mode: normalizePixelsMode(payload.config.mode),
-          sharedSet: normalizeSharedSet(payload.config.sharedSet)
-        }
-      : state.pixelsConfig;
+    state.pixelsConfig = payload.config ? normalizePixelsConfig(payload.config) : state.pixelsConfig;
+    state.groupSheet.pendingRoll = null;
+    state.groupSheet.sharedRoll = null;
     renderView();
     setStatus("Tracker wurde zurückgesetzt.");
   } catch (error) {
@@ -3796,13 +4085,11 @@ pixelsModeSelectEl?.addEventListener("change", async () => {
       method: "POST",
       body: JSON.stringify({
         mode: normalizePixelsMode(pixelsModeSelectEl.value),
-        sharedSet: normalizeSharedSet(state.pixelsConfig?.sharedSet)
+        sharedSet: normalizeSharedSet(state.pixelsConfig?.sharedSet),
+        gmSet: normalizeSharedSet(state.pixelsConfig?.gmSet)
       })
     });
-    state.pixelsConfig = {
-      mode: normalizePixelsMode(payload?.config?.mode),
-      sharedSet: normalizeSharedSet(payload?.config?.sharedSet)
-    };
+    state.pixelsConfig = normalizePixelsConfig(payload?.config);
     renderPixelsCharacterAssignments();
     setStatus("Pixels-Modus gespeichert.");
   } catch (error) {

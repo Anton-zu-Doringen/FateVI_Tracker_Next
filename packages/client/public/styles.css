@@ -420,6 +420,96 @@ h1 {
   justify-self: end;
 }
 
+.group-sheet-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.group-sheet-character {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 249, 235, 0.72);
+  padding: 0.45rem 0.55rem 0.55rem;
+}
+
+.group-sheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.group-sheet-table tr {
+  height: 2.1rem;
+}
+
+.group-sheet-character-row {
+  height: 1.9rem;
+}
+
+.group-sheet-table td {
+  border: 1px solid var(--line);
+  padding: 0.18rem 0.45rem;
+  text-align: left;
+  vertical-align: middle;
+  line-height: 1;
+  background: rgba(255, 249, 235, 0.82);
+}
+
+.group-sheet-character-cell {
+  font-weight: 700;
+  background: rgba(245, 233, 203, 0.9);
+}
+
+.group-sheet-skill-label {
+  width: 12rem;
+  font-weight: 700;
+}
+
+.group-sheet-table td:nth-child(2) {
+  width: 7rem;
+}
+
+.group-sheet-table td:nth-child(3) {
+  width: 7rem;
+  padding-right: 0.18rem;
+  border-right: 0;
+}
+
+.group-sheet-table td input {
+  width: 9ch;
+  min-width: 9ch;
+  max-width: 9ch;
+  height: 1.45rem;
+  padding: 0.1rem 0.3rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.group-sheet-table td:nth-child(3),
+.group-sheet-table td:nth-child(4) {
+  text-align: center;
+}
+
+.group-sheet-table td:nth-child(4) {
+  width: 8.75rem;
+  white-space: nowrap;
+  text-align: left;
+  border-left: 0;
+  padding-left: 0;
+}
+
+.group-sheet-penalty-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+  background: #efe6d2;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .event-due-inline {
   display: inline-flex;
   align-items: center;

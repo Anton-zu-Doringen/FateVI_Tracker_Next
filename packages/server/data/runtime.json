@@ -9,9 +9,9 @@
         "ownerUserId": null,
         "surprised": false,
         "incapacitated": false,
-        "lastRoll": 7,
+        "lastRoll": 11,
         "critBonusRoll": null,
-        "totalInitiative": 37,
+        "totalInitiative": 41,
         "unfreeDefensePenalty": 0,
         "paradeClickCount": 0,
         "moveActionUsed": false,
@@ -179,9 +179,9 @@
         ],
         "unfreeDefensePenalty": 0,
         "paradeClickCount": 0,
-        "lastRoll": null,
+        "lastRoll": 11,
         "critBonusRoll": null,
-        "totalInitiative": null,
+        "totalInitiative": 21,
         "moveActionUsed": false,
         "specialAbilityActive": false,
         "initiativeRollMode": "automatic",
@@ -193,7 +193,7 @@
         "id": "npc-bandit:bonus",
         "characterId": "npc-bandit",
         "turnType": "Bonus",
-        "groupInitiative": 37,
+        "groupInitiative": 41,
         "critical": null,
         "used": false,
         "actionIndex": 0
@@ -202,7 +202,7 @@
         "id": "npc-bandit:main",
         "characterId": "npc-bandit",
         "turnType": "Main",
-        "groupInitiative": 37,
+        "groupInitiative": 41,
         "critical": null,
         "used": false,
         "actionIndex": 1
@@ -211,7 +211,7 @@
         "id": "npc-bandit:move",
         "characterId": "npc-bandit",
         "turnType": "Move",
-        "groupInitiative": 37,
+        "groupInitiative": 41,
         "critical": null,
         "used": false,
         "actionIndex": 2
@@ -280,9 +280,34 @@
         "actionIndex": 1
       }
     ],
-    "round": 24,
+    "round": 25,
     "activeCharacterId": "npc-bandit",
-    "pendingInputs": [],
+    "pendingInputs": [
+      {
+        "type": "roll",
+        "request": {
+          "kind": "initiative-roll",
+          "characterId": "npc-karl-oby1",
+          "dice": "3d6"
+        }
+      },
+      {
+        "type": "roll",
+        "request": {
+          "kind": "initiative-roll",
+          "characterId": "pc-karli-u7js",
+          "dice": "3d6"
+        }
+      },
+      {
+        "type": "roll",
+        "request": {
+          "kind": "initiative-roll",
+          "characterId": "pc-anton-zu-dohringen-vqvf",
+          "dice": "3d6"
+        }
+      }
+    ],
     "events": []
   },
   "sessions": [
@@ -771,9 +796,14 @@
   "pixelsConfig": {
     "mode": "shared-set-3",
     "sharedSet": [
-      "E0:5C:84:70:34:4A",
-      "EC:F4:6D:57:89:5E",
-      "D6:5A:86:EC:4E:70"
+      "E8:A3:82:1E:A7:CA",
+      "C8:68:E7:DB:E1:FB",
+      "C7:BC:E1:63:23:01"
+    ],
+    "gmSet": [
+      null,
+      null,
+      null
     ]
   }
 }
