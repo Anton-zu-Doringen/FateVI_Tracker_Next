@@ -2461,7 +2461,12 @@ async function serveStaticAsset(requestPath, response) {
 
   try {
     const content = await readFile(assetPath);
-    response.writeHead(200, { "content-type": getContentType(assetPath) });
+    response.writeHead(200, {
+      "content-type": getContentType(assetPath),
+      "cache-control": "no-store, no-cache, must-revalidate",
+      pragma: "no-cache",
+      expires: "0"
+    });
     response.end(content);
   } catch {
     sendError(response, 404, "not found");
