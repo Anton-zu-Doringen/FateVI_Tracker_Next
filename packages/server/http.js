@@ -1817,8 +1817,9 @@ async function handleBluetoothConnect(request, response) {
         stage: "scan",
         message: `Gemerkter Würfel nicht sichtbar. Suche ${body.name} neu.`
       });
+      let reboundDevice = null;
       try {
-        const reboundDevice = await findVisibleBluetoothDeviceByName(body.name, 8);
+        reboundDevice = await findVisibleBluetoothDeviceByName(body.name, 8);
         if (!reboundDevice) {
           throw new Error(`Kein sichtbarer BLE-Würfel mit Name ${body.name} gefunden`);
         }
@@ -1863,7 +1864,9 @@ async function handleBluetoothConnect(request, response) {
             "direct connect did not establish a stable bluez link"
           ].includes(rebindMessage)
         ) {
-          const fallbackDevice = await tryPixelsGattFallback(reboundDevice.address, reboundDevice.name || body.name);
+          const fallbackDevice = reboundDevice
+            ? await tryPixelsGattFallback(reboundDevice.address, reboundDevice.name || body.name)
+            : null;
           if (fallbackDevice) {
             updateBluetoothOperation(reboundDevice.address, {
               name: fallbackDevice.name || reboundDevice.name || body.name || reboundDevice.address,
@@ -2214,7 +2217,12 @@ async function handlePixelsRollIntegration(event) {
     return;
   }
 
-  if (pendingGroupSheetRoll.status !== "pending") {
+  if (pendingPixelRolls.size && pendingGroupSheetRoll.status === "pending") {
+    resetPendingGroupSheetRoll();
+    broadcastPixelsEvent("group-sheet-roll", getPendingGroupSheetRollPayload());
+  }
+
+  if (!pendingPixelRolls.size && pendingGroupSheetRoll.status !== "pending") {
     const { source, assignedDice } = getConfiguredGroupSheetDice();
     if (source && assignedDice.some((entry) => entry.address === event.address)) {
       pendingGroupSheetRoll.status = "pending";
@@ -2227,7 +2235,7 @@ async function handlePixelsRollIntegration(event) {
     }
   }
 
-  if (pendingGroupSheetRoll.status === "pending") {
+  if (!pendingPixelRolls.size && pendingGroupSheetRoll.status === "pending") {
     const assignedEntry = (pendingGroupSheetRoll.assignedDice || []).find((entry) => entry.address === event.address) || null;
     if (assignedEntry) {
       const lastAcceptedAt = pendingGroupSheetRoll.acceptedAtByAddress.get(event.address);

@@ -1045,14 +1045,19 @@ function setupPanelDragAndDrop() {
   }
 
   for (const panel of document.querySelectorAll(".left-column > .panel[id], .right-column > .panel[id]")) {
-    panel.setAttribute("draggable", "true");
-    panel.addEventListener("dragstart", (event) => {
+    panel.removeAttribute("draggable");
+    const dragHandle = panel.querySelector(":scope > .collapse-head");
+    if (!(dragHandle instanceof HTMLElement)) {
+      continue;
+    }
+    dragHandle.setAttribute("draggable", "true");
+    dragHandle.addEventListener("dragstart", (event) => {
       state.draggedPanelId = panel.id;
       panel.classList.add("panel-dragging");
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", panel.id);
     });
-    panel.addEventListener("dragend", () => {
+    dragHandle.addEventListener("dragend", () => {
       panel.classList.remove("panel-dragging");
       for (const current of document.querySelectorAll(".panel-drop-target")) {
         current.classList.remove("panel-drop-target");
@@ -2972,7 +2977,8 @@ function renderPixelsDevices() {
     const disconnectBtn = document.createElement("button");
     disconnectBtn.type = "button";
     disconnectBtn.textContent = operation?.kind === "disconnect" && operation?.status === "running" ? "Trenne..." : "Trennen";
-    disconnectBtn.disabled = !effectiveConnected || operation?.status === "running";
+    const canAttemptDisconnect = Boolean(effectiveConnected || device.available || device.connected || device.gattReady || device.paired);
+    disconnectBtn.disabled = !canAttemptDisconnect || operation?.status === "running";
     disconnectBtn.addEventListener("click", async () => {
       try {
         await requestJson("/api/bluetooth/disconnect", {
