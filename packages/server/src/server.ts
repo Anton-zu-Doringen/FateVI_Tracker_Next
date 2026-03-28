@@ -1,4 +1,4 @@
-import { applyCommand, createCombatState, type Command, type CombatState } from "@fatevi/rules";
+import { applyCommand, cloneCombatState, createCombatState, type Command, type CombatState } from "@fatevi/rules";
 import { canExecuteCommand, type Session } from "./auth.js";
 import { NullPixelsAdapter, type PixelsAdapter } from "./pixels.js";
 import { toGmView, toPlayerView } from "./views.js";
@@ -13,11 +13,11 @@ export class TrackerServer {
 
   constructor(pixels: PixelsAdapter = new NullPixelsAdapter(), initialState: CombatState | null = null) {
     this.pixels = pixels;
-    this.state = initialState ? this.cloneState(initialState) : createDefaultState();
+    this.state = initialState ? cloneCombatState(initialState) : createDefaultState();
   }
 
   getState(): CombatState {
-    return this.cloneState(this.state);
+    return cloneCombatState(this.state);
   }
 
   resetState(): void {
@@ -25,20 +25,7 @@ export class TrackerServer {
   }
 
   setState(nextState: CombatState): void {
-    this.state = this.cloneState(nextState);
-  }
-
-  private cloneState(source: CombatState): CombatState {
-    return {
-      ...source,
-      characters: source.characters.map((character) => ({ ...character })),
-      events: Array.isArray(source.events) ? source.events.map((event) => ({ ...event })) : [],
-      turnEntries: source.turnEntries.map((entry) => ({ ...entry })),
-      pendingInputs: source.pendingInputs.map((input) => ({
-        ...input,
-        request: { ...input.request }
-      }))
-    };
+    this.state = cloneCombatState(nextState);
   }
 
   getStateForSession(session: Session) {

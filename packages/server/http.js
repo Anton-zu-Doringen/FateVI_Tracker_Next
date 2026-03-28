@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { createCharacter } from "@fatevi/rules";
+import { computeCritical, createCharacter } from "@fatevi/rules";
 import { TrackerServer } from "./dist/server.js";
 import { connectBluetoothDevice, disconnectBluetoothDevice, listBluetoothDevices, scanBluetoothDevices } from "./bluetooth.js";
 import { blinkPixelsDevice, createPixelsMonitorManager, forgetPixelsGatt, identifyPixelsDevice, listPixelsDevices } from "./pixels.js";
@@ -15,6 +15,9 @@ const GM_PASSWORD = process.env.FATEVI_GM_PASSWORD ?? "gm";
 const DEFAULT_GM_NAME = process.env.FATEVI_GM_NAME ?? "Spielleiter";
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || "127.0.0.1";
+const DEFAULT_GM_PASSWORD = "gm";
+const MAX_JSON_BODY_BYTES = 1024 * 1024;
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const serverState = new TrackerServer();
 const sessions = new Map();
 const eventStreams = new Map();
@@ -56,24 +59,93 @@ const pixelsConfig = {
 const pixelsMonitor = createPixelsMonitorManager({
   onEvent: (event) => {
     broadcastPixelsEvent("pixels-roll", event);
-    void handlePixelsRollIntegration(event).catch((error) => {
+    queuePixelsRollIntegration(event);
+  },
+  onStatus: (payload) => {
+    broadcastPixelsEvent("pixels-status", payload);
+  }
+});
+let pixelsRollIntegrationQueue = Promise.resolve();
+
+function queuePixelsRollIntegration(event) {
+  pixelsRollIntegrationQueue = pixelsRollIntegrationQueue
+    .then(() => handlePixelsRollIntegration(event))
+    .catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
       broadcastPixelsEvent("pixels-roll-integration-error", {
         address: event.address,
         error: message
       });
     });
-  },
-  onStatus: (payload) => {
-    broadcastPixelsEvent("pixels-status", payload);
+}
+
+function createHttpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function createSessionRecord(session, now = Date.now()) {
+  return {
+    session,
+    createdAt: new Date(now).toISOString(),
+    lastSeenAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + SESSION_TTL_MS).toISOString()
+  };
+}
+
+function closeSessionStream(token) {
+  const stream = eventStreams.get(token);
+  if (stream) {
+    stream.end();
+    eventStreams.delete(token);
   }
-});
+}
+
+function isSessionRecordExpired(record, now = Date.now()) {
+  return !record?.expiresAt || Date.parse(record.expiresAt) <= now;
+}
+
+function pruneExpiredSessions(now = Date.now()) {
+  let changed = false;
+  for (const [token, record] of sessions.entries()) {
+    if (!isSessionRecordExpired(record, now)) {
+      continue;
+    }
+    sessions.delete(token);
+    closeSessionStream(token);
+    changed = true;
+  }
+  return changed;
+}
+
+function getSessionRecord(token, options = {}) {
+  const { touch = true } = options;
+  pruneExpiredSessions();
+  const record = sessions.get(token);
+  if (!record) {
+    return null;
+  }
+  if (!touch) {
+    return record;
+  }
+  const now = Date.now();
+  record.lastSeenAt = new Date(now).toISOString();
+  record.expiresAt = new Date(now + SESSION_TTL_MS).toISOString();
+  return record;
+}
 
 async function saveRuntime() {
   await mkdir(dataDir, { recursive: true });
   const payload = {
     state: serverState.getState(),
-    sessions: Array.from(sessions.entries()).map(([token, session]) => ({ token, session })),
+    sessions: Array.from(sessions.entries()).map(([token, record]) => ({
+      token,
+      session: record.session,
+      createdAt: record.createdAt,
+      lastSeenAt: record.lastSeenAt,
+      expiresAt: record.expiresAt
+    })),
     gmAccounts: Array.from(gmAccounts.values()).map((account) => ({
       id: account.id,
       name: account.name,
@@ -96,9 +168,18 @@ async function loadRuntime() {
       serverState.setState(payload.state);
     }
     sessions.clear();
+    const now = Date.now();
     for (const entry of payload?.sessions || []) {
       if (entry?.token && entry?.session) {
-        sessions.set(entry.token, entry.session);
+        const record = {
+          session: entry.session,
+          createdAt: entry.createdAt || new Date(now).toISOString(),
+          lastSeenAt: entry.lastSeenAt || entry.createdAt || new Date(now).toISOString(),
+          expiresAt: entry.expiresAt || new Date(now + SESSION_TTL_MS).toISOString()
+        };
+        if (!isSessionRecordExpired(record, now)) {
+          sessions.set(entry.token, record);
+        }
       }
     }
     gmAccounts.clear();
@@ -122,12 +203,16 @@ async function loadRuntime() {
     await migrateLegacyLibraries(payload?.gmLibraries || []);
     const fallbackAccount = gmAccounts.values().next().value ?? null;
     if (fallbackAccount) {
-      for (const [token, session] of sessions.entries()) {
+      for (const [token, record] of sessions.entries()) {
+        const session = record?.session;
         if (session?.role === "gm" && (!session.userId || session.userId === "gm" || !gmAccounts.has(session.userId))) {
           sessions.set(token, {
-            ...session,
-            userId: fallbackAccount.id,
-            displayName: fallbackAccount.name
+            ...record,
+            session: {
+              ...session,
+              userId: fallbackAccount.id,
+              displayName: fallbackAccount.name
+            }
           });
         }
       }
@@ -840,16 +925,6 @@ function roll3d6() {
   return rollD6() + rollD6() + rollD6();
 }
 
-function computeCriticalState(total) {
-  if (total === 18) {
-    return "success";
-  }
-  if (total === 3) {
-    return "failure";
-  }
-  return null;
-}
-
 async function triggerPixelsBlinkForAddresses(addresses, options) {
   const uniqueAddresses = [...new Set(addresses.filter(Boolean))];
   await Promise.all(
@@ -903,7 +978,7 @@ async function startPixelsWatchesForPendingRolls() {
 }
 
 async function triggerCriticalLedEffect(characterId, total) {
-  const critical = computeCriticalState(total);
+  const critical = computeCritical(total);
   if (!critical) {
     return;
   }
@@ -1041,13 +1116,23 @@ function sendError(response, statusCode, message) {
 
 async function readJsonBody(request) {
   const chunks = [];
+  let totalBytes = 0;
   for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const bufferChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += bufferChunk.length;
+    if (totalBytes > MAX_JSON_BODY_BYTES) {
+      throw createHttpError(413, `json body too large (max ${MAX_JSON_BODY_BYTES} bytes)`);
+    }
+    chunks.push(bufferChunk);
   }
   if (!chunks.length) {
     return {};
   }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw createHttpError(400, "invalid json body");
+  }
 }
 
 async function readRequestBuffer(request) {
@@ -1075,7 +1160,8 @@ function getSessionFromRequest(request) {
   if (!token) {
     return null;
   }
-  return sessions.get(token) ?? null;
+  const record = getSessionRecord(token);
+  return record?.session ?? null;
 }
 
 function requireGmSession(request, response) {
@@ -1098,12 +1184,12 @@ function sendSseEvent(response, eventName, payload) {
 
 function broadcastStateUpdate(reason = "state-updated") {
   for (const [token, response] of eventStreams.entries()) {
-    const session = sessions.get(token);
-    if (!session) {
-      response.end();
-      eventStreams.delete(token);
+    const record = getSessionRecord(token, { touch: false });
+    if (!record) {
+      closeSessionStream(token);
       continue;
     }
+    const session = record.session;
     sendSseEvent(response, "state", {
       reason,
       session,
@@ -1114,12 +1200,12 @@ function broadcastStateUpdate(reason = "state-updated") {
 
 function broadcastPixelsEvent(eventName, payload) {
   for (const [token, response] of eventStreams.entries()) {
-    const session = sessions.get(token);
-    if (!session) {
-      response.end();
-      eventStreams.delete(token);
+    const record = getSessionRecord(token, { touch: false });
+    if (!record) {
+      closeSessionStream(token);
       continue;
     }
+    const session = record.session;
     if (session.role !== "gm") {
       continue;
     }
@@ -1228,7 +1314,7 @@ async function handleLogin(request, response) {
     }
     const session = { userId: account.id, role: "gm", controlledCharacterId: null, displayName: account.name };
     const token = randomUUID();
-    sessions.set(token, session);
+    sessions.set(token, createSessionRecord(session));
     await saveRuntime();
     sendJson(response, 200, { token, session, view: serverState.getStateForSession(session) });
     return;
@@ -1247,7 +1333,7 @@ async function handleLogin(request, response) {
       controlledCharacterId: character.id
     };
     const token = randomUUID();
-    sessions.set(token, session);
+    sessions.set(token, createSessionRecord(session));
     await saveRuntime();
     sendJson(response, 200, { token, session, view: serverState.getStateForSession(session) });
     return;
@@ -1263,11 +1349,7 @@ async function handleLogout(request, response) {
     return;
   }
   sessions.delete(token);
-  const stream = eventStreams.get(token);
-  if (stream) {
-    stream.end();
-    eventStreams.delete(token);
-  }
+  closeSessionStream(token);
   await saveRuntime();
   sendJson(response, 200, { ok: true });
 }
@@ -1648,11 +1730,12 @@ async function handleEvents(request, response) {
     sendError(response, 401, "missing session token");
     return;
   }
-  const session = sessions.get(token);
-  if (!session) {
+  const record = getSessionRecord(token);
+  if (!record) {
     sendError(response, 401, "invalid session token");
     return;
   }
+  const session = record.session;
 
   response.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
@@ -2633,12 +2716,17 @@ async function handleRequest(request, response) {
 export async function startHttpServer(port = PORT) {
   await loadRuntime();
   ensureDefaultGmAccount();
+  if (GM_PASSWORD === DEFAULT_GM_PASSWORD) {
+    console.warn("FATEVI_GM_PASSWORD is using the insecure default 'gm'. Set a custom password before non-local use.");
+  }
   await saveRuntime();
   rebuildPendingPixelRolls();
   const httpServer = createServer((request, response) => {
     void handleRequest(request, response).catch((error) => {
+      const statusCode =
+        error && typeof error === "object" && "statusCode" in error && Number.isInteger(error.statusCode) ? error.statusCode : 500;
       const message = error instanceof Error ? error.message : String(error);
-      sendError(response, 500, message);
+      sendError(response, statusCode, message);
     });
   });
 

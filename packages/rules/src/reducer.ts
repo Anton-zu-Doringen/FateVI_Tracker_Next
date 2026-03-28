@@ -1,23 +1,10 @@
-import { createCharacter, getDefaultInitiativeRollMode } from "./state.js";
+import { cloneCombatState, createCharacter, getDefaultInitiativeRollMode } from "./state.js";
 import { buildTurnEntries, computeTotalInitiative } from "./initiative.js";
 import { getDefaultDazedUntilRound, isCharacterDazed, normalizeDamageMonitorMarks } from "./damage.js";
 import type { CombatState, Command, RuleEvent, RuleResult, TurnEntry } from "./types.js";
 
-function cloneState(state: CombatState): CombatState {
-  return {
-    ...state,
-    characters: state.characters.map((character) => ({ ...character })),
-    events: Array.isArray(state.events) ? state.events.map((event) => ({ ...event })) : [],
-    turnEntries: state.turnEntries.map((entry) => ({ ...entry })),
-    pendingInputs: state.pendingInputs.map((input) => ({
-      ...input,
-      request: { ...input.request }
-    }))
-  };
-}
-
 export function applyCommand(state: CombatState, command: Command): RuleResult {
-  const nextState = cloneState(state);
+  const nextState = cloneCombatState(state);
   const events: RuleEvent[] = [];
 
   const getTurnEntry = (entryId: string) => nextState.turnEntries.find((entry) => entry.id === entryId) ?? null;
@@ -174,7 +161,14 @@ export function applyCommand(state: CombatState, command: Command): RuleResult {
     }
     case "toggle-surprised": {
       nextState.characters = nextState.characters.map((character) =>
-        character.id === command.characterId ? { ...character, surprised: command.surprised } : character
+        character.id === command.characterId
+          ? {
+              ...character,
+              surprised: command.surprised,
+              totalInitiative:
+                character.lastRoll === null ? character.totalInitiative : computeTotalInitiative({ ...character, surprised: command.surprised }, character.lastRoll, character.critBonusRoll)
+            }
+          : character
       );
       rebuildTurnEntries();
       events.push({ type: "character-updated", characterId: command.characterId, detail: "surprised toggled" });

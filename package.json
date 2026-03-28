@@ -8,7 +8,8 @@
   "scripts": {
     "build": "tsc -b packages/rules packages/server packages/client",
     "check": "tsc -b packages/rules packages/server packages/client --pretty false",
-    "start": "node packages/server/http.js"
+    "start": "node packages/server/http.js",
+    "test:rules": "npx tsc -b packages/rules --force && node --test packages/rules/test/*.test.js"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

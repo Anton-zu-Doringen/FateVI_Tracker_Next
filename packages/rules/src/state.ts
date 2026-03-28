@@ -48,3 +48,16 @@ export function createCombatState(characters: Character[] = []): CombatState {
     pendingInputs: []
   };
 }
+
+export function cloneCombatState(state: CombatState): CombatState {
+  return {
+    ...state,
+    characters: state.characters.map((character) => ({ ...character })),
+    events: Array.isArray(state.events) ? state.events.map((event) => ({ ...event })) : [],
+    turnEntries: state.turnEntries.map((entry) => ({ ...entry })),
+    pendingInputs: state.pendingInputs.map((input) => ({
+      ...input,
+      request: { ...input.request }
+    }))
+  };
+}

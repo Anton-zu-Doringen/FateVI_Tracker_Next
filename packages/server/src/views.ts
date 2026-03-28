@@ -1,4 +1,4 @@
-import type { CombatState } from "@fatevi/rules";
+import { cloneCombatState, type CombatState } from "@fatevi/rules";
 import type { Session } from "./auth.js";
 
 export interface PlayerVisibleCharacter {
@@ -66,14 +66,5 @@ export function toPlayerView(state: CombatState, session: Session): PlayerView {
 }
 
 export function toGmView(state: CombatState): CombatState {
-  return {
-    ...state,
-    characters: state.characters.map((character) => ({ ...character })),
-    events: Array.isArray(state.events) ? state.events.map((event) => ({ ...event })) : [],
-    turnEntries: state.turnEntries.map((entry) => ({ ...entry })),
-    pendingInputs: state.pendingInputs.map((input) => ({
-      ...input,
-      request: { ...input.request }
-    }))
-  };
+  return cloneCombatState(state);
 }

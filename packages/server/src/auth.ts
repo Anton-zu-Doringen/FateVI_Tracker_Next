@@ -48,4 +48,6 @@ export function canExecuteCommand(session: Session, state: CombatState, command:
     case "step-active-character":
       return false;
   }
+
+  return false;
 }
