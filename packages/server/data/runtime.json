@@ -9,16 +9,16 @@
         "ownerUserId": null,
         "surprised": false,
         "incapacitated": false,
-        "lastRoll": 11,
+        "lastRoll": 6,
         "critBonusRoll": null,
-        "totalInitiative": 41,
+        "totalInitiative": 36,
         "unfreeDefensePenalty": 0,
         "paradeClickCount": 0,
         "moveActionUsed": false,
         "specialAbility": "INI Boxer",
         "initiativeRollMode": "automatic",
         "specialAbilityActive": false,
-        "dazedUntilRound": 3,
+        "dazedUntilRound": null,
         "damageMonitorMarks": [
           false,
           false,
@@ -68,12 +68,13 @@
         ],
         "unfreeDefensePenalty": 0,
         "paradeClickCount": 0,
-        "lastRoll": 10,
+        "lastRoll": 13,
         "critBonusRoll": null,
-        "totalInitiative": 31,
+        "totalInitiative": 34,
         "moveActionUsed": false,
         "specialAbilityActive": false,
-        "initiativeRollMode": "pixels"
+        "initiativeRollMode": "pixels",
+        "hidden": false
       },
       {
         "id": "pc-karli-u7js",
@@ -105,9 +106,9 @@
         ],
         "unfreeDefensePenalty": 0,
         "paradeClickCount": 0,
-        "lastRoll": 10,
+        "lastRoll": 6,
         "critBonusRoll": null,
-        "totalInitiative": 25,
+        "totalInitiative": 21,
         "moveActionUsed": false,
         "initiativeRollMode": "pixels",
         "specialAbilityActive": false
@@ -145,9 +146,9 @@
         "paradeClickCount": 0,
         "moveActionUsed": false,
         "specialAbilityActive": false,
-        "lastRoll": 7,
+        "lastRoll": 6,
         "critBonusRoll": null,
-        "totalInitiative": 28
+        "totalInitiative": 27
       },
       {
         "id": "npc-grumbsch-1wp5",
@@ -179,9 +180,9 @@
         ],
         "unfreeDefensePenalty": 0,
         "paradeClickCount": 0,
-        "lastRoll": 11,
+        "lastRoll": 15,
         "critBonusRoll": null,
-        "totalInitiative": 21,
+        "totalInitiative": 25,
         "moveActionUsed": false,
         "specialAbilityActive": false,
         "initiativeRollMode": "automatic",
@@ -193,7 +194,7 @@
         "id": "npc-bandit:bonus",
         "characterId": "npc-bandit",
         "turnType": "Bonus",
-        "groupInitiative": 41,
+        "groupInitiative": 36,
         "critical": null,
         "used": false,
         "actionIndex": 0
@@ -202,7 +203,7 @@
         "id": "npc-bandit:main",
         "characterId": "npc-bandit",
         "turnType": "Main",
-        "groupInitiative": 41,
+        "groupInitiative": 36,
         "critical": null,
         "used": false,
         "actionIndex": 1
@@ -211,7 +212,7 @@
         "id": "npc-bandit:move",
         "characterId": "npc-bandit",
         "turnType": "Move",
-        "groupInitiative": 41,
+        "groupInitiative": 36,
         "critical": null,
         "used": false,
         "actionIndex": 2
@@ -220,7 +221,7 @@
         "id": "npc-karl-oby1:bonus",
         "characterId": "npc-karl-oby1",
         "turnType": "Bonus",
-        "groupInitiative": 31,
+        "groupInitiative": 34,
         "critical": null,
         "used": false,
         "actionIndex": 0
@@ -229,7 +230,7 @@
         "id": "npc-karl-oby1:main",
         "characterId": "npc-karl-oby1",
         "turnType": "Main",
-        "groupInitiative": 31,
+        "groupInitiative": 34,
         "critical": null,
         "used": false,
         "actionIndex": 1
@@ -238,7 +239,7 @@
         "id": "npc-karl-oby1:move",
         "characterId": "npc-karl-oby1",
         "turnType": "Move",
-        "groupInitiative": 31,
+        "groupInitiative": 34,
         "critical": null,
         "used": false,
         "actionIndex": 2
@@ -247,7 +248,7 @@
         "id": "pc-anton-zu-dohringen-vqvf:main",
         "characterId": "pc-anton-zu-dohringen-vqvf",
         "turnType": "Main",
-        "groupInitiative": 28,
+        "groupInitiative": 27,
         "critical": null,
         "used": false,
         "actionIndex": 0
@@ -256,7 +257,7 @@
         "id": "pc-anton-zu-dohringen-vqvf:move",
         "characterId": "pc-anton-zu-dohringen-vqvf",
         "turnType": "Move",
-        "groupInitiative": 28,
+        "groupInitiative": 27,
         "critical": null,
         "used": false,
         "actionIndex": 1
@@ -265,7 +266,7 @@
         "id": "pc-karli-u7js:main",
         "characterId": "pc-karli-u7js",
         "turnType": "Main",
-        "groupInitiative": 25,
+        "groupInitiative": 21,
         "critical": null,
         "used": false,
         "actionIndex": 0
@@ -274,41 +275,23 @@
         "id": "pc-karli-u7js:move",
         "characterId": "pc-karli-u7js",
         "turnType": "Move",
-        "groupInitiative": 25,
+        "groupInitiative": 21,
         "critical": null,
         "used": false,
         "actionIndex": 1
       }
     ],
-    "round": 25,
+    "round": 3,
     "activeCharacterId": "npc-bandit",
-    "pendingInputs": [
+    "pendingInputs": [],
+    "events": [
       {
-        "type": "roll",
-        "request": {
-          "kind": "initiative-roll",
-          "characterId": "npc-karl-oby1",
-          "dice": "3d6"
-        }
-      },
-      {
-        "type": "roll",
-        "request": {
-          "kind": "initiative-roll",
-          "characterId": "pc-karli-u7js",
-          "dice": "3d6"
-        }
-      },
-      {
-        "type": "roll",
-        "request": {
-          "kind": "initiative-roll",
-          "characterId": "pc-anton-zu-dohringen-vqvf",
-          "dice": "3d6"
-        }
+        "id": "event-mnap1i7t-5tqe",
+        "description": "Status: Tod",
+        "createdAtRound": 1,
+        "dueRound": 5
       }
-    ],
-    "events": []
+    ]
   },
   "sessions": [
     {
@@ -748,6 +731,15 @@
         "controlledCharacterId": null,
         "displayName": "Lain"
       }
+    },
+    {
+      "token": "589ad516-02f4-40f2-bc02-4eb1aedbc8eb",
+      "session": {
+        "userId": "gm-fb3924bb-563f-47b3-9423-961ec13063cc",
+        "role": "gm",
+        "controlledCharacterId": null,
+        "displayName": "Lain"
+      }
     }
   ],
   "gmAccounts": [
@@ -787,18 +779,14 @@
     {
       "address": "C8:68:E7:DB:E1:FB",
       "name": "W6N2"
-    },
-    {
-      "address": "C7:BC:E1:63:23:01",
-      "name": "W6N3"
     }
   ],
   "pixelsConfig": {
     "mode": "shared-set-3",
     "sharedSet": [
-      "E8:A3:82:1E:A7:CA",
-      "C8:68:E7:DB:E1:FB",
-      "C7:BC:E1:63:23:01"
+      "E0:5C:84:70:34:4A",
+      "EC:F4:6D:57:89:5E",
+      "D6:5A:86:EC:4E:70"
     ],
     "gmSet": [
       null,
