@@ -977,6 +977,20 @@ async function startPixelsWatchesForPendingRolls() {
   }
 }
 
+async function ensureAutomaticPixelsWatches() {
+  const addresses = [...new Set(getSelectedPixelsPayload().map((entry) => entry.address).filter(Boolean))];
+  for (const address of addresses) {
+    try {
+      await pixelsMonitor.watchDevice(address);
+    } catch (error) {
+      broadcastPixelsEvent("pixels-watch-auto-error", {
+        address,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+}
+
 async function triggerCriticalLedEffect(characterId, total) {
   const critical = computeCritical(total);
   if (!critical) {
@@ -1861,6 +1875,7 @@ async function handleBluetoothConnect(request, response) {
       stage: "ready",
       message: "Gerät ist verbunden."
     });
+    await ensureAutomaticPixelsWatches();
     sendJson(response, 200, { device });
     setTimeout(() => clearBluetoothOperation(body.address, "connect-finished"), 5000);
   } catch (error) {
@@ -1881,6 +1896,7 @@ async function handleBluetoothConnect(request, response) {
           stage: "ready",
           message: "Gerät ohne klassisches Pairing über GATT erreichbar."
         });
+        await ensureAutomaticPixelsWatches();
         sendJson(response, 200, { device: fallbackDevice, degradedPairing: true });
         setTimeout(() => clearBluetoothOperation(body.address, "connect-finished"), 5000);
         return;
@@ -1935,6 +1951,7 @@ async function handleBluetoothConnect(request, response) {
           stage: "ready",
           message: "Gerät ist verbunden."
         });
+        await ensureAutomaticPixelsWatches();
         sendJson(response, 200, { device, reboundFromAddress: body.address });
         setTimeout(() => clearBluetoothOperation(reboundDevice.address, "connect-finished"), 5000);
         return;
@@ -1958,6 +1975,7 @@ async function handleBluetoothConnect(request, response) {
               stage: "ready",
               message: "Gerät ohne klassisches Pairing über GATT erreichbar."
             });
+            await ensureAutomaticPixelsWatches();
             sendJson(response, 200, {
               device: fallbackDevice,
               reboundFromAddress: body.address,
@@ -2080,6 +2098,7 @@ async function handleSelectedPixelsUpdate(request, response) {
   }
 
   rebuildPendingPixelRolls();
+  await ensureAutomaticPixelsWatches();
   await persistSelectedPixelsAndBroadcast(body.selected ? "pixels-selected" : "pixels-deselected");
   if (!body.selected) {
     await persistPixelsAssignmentsAndBroadcast("pixels-assignment-pruned");
@@ -2732,6 +2751,7 @@ export async function startHttpServer(port = PORT) {
 
   httpServer.listen(port, HOST, () => {
     console.log(`FateVI Tracker Next listening on http://${HOST}:${port}`);
+    void ensureAutomaticPixelsWatches();
     void ensureGroupSheetPixelsWatches();
   });
   return httpServer;
