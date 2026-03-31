@@ -1,6 +1,5 @@
 import { applyCommand, createCombatState, type Command, type CombatState } from "@fatevi/rules";
 import { canExecuteCommand, type Session } from "./auth.js";
-import { NullPixelsAdapter, type PixelsAdapter } from "./pixels.js";
 import { toGmView, toPlayerView } from "./views.js";
 
 function cloneCombatState(state: CombatState): CombatState {
@@ -22,10 +21,8 @@ function createDefaultState(): CombatState {
 
 export class TrackerServer {
   private state: CombatState;
-  private pixels: PixelsAdapter;
 
-  constructor(pixels: PixelsAdapter = new NullPixelsAdapter(), initialState: CombatState | null = null) {
-    this.pixels = pixels;
+  constructor(initialState: CombatState | null = null) {
     this.state = initialState ? cloneCombatState(initialState) : createDefaultState();
   }
 

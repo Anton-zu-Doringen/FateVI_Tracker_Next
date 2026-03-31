@@ -5,14 +5,6 @@ const state = {
   bootstrap: null,
   eventSource: null,
   liveConnected: false,
-  bluetoothDevices: [],
-  bluetoothOperations: [],
-  pixelsDevices: [],
-  pixelsMonitor: { monitors: [], recentEvents: [] },
-  selectedPixelsDevices: [],
-  pixelsAssignments: [],
-  pixelsConfig: { mode: "pc-set-3", sharedSet: [null, null, null], gmSet: [null, null, null] },
-  pixelsRollProgress: [],
   library: { snapshots: [], groups: [] },
   initiativeDialogRequested: false,
   initiativeDialogInputs: {},
@@ -100,9 +92,6 @@ const removeAllCharactersBtn = document.getElementById("remove-all-characters");
 const removePcCharactersBtn = document.getElementById("remove-pc-characters");
 const removeNpcCharactersBtn = document.getElementById("remove-npc-characters");
 const endCombatBtn = document.getElementById("end-combat");
-const openPixelsSettingsBtn = document.getElementById("open-pixels-settings");
-const pixelsSettingsDialogEl = document.getElementById("pixels-settings-dialog");
-const pixelsSettingsCloseBtn = document.getElementById("pixels-settings-close");
 const startRoundBtn = document.getElementById("start-round");
 const toggleAllPcSurprisedEl = document.getElementById("toggle-all-pc-surprised");
 const toggleAllNpcSurprisedEl = document.getElementById("toggle-all-npc-surprised");
@@ -125,16 +114,6 @@ const combatLogEl = document.getElementById("combat-log");
 const showSystemLogsEl = document.getElementById("show-system-logs");
 const activateCharacterUpBtn = document.getElementById("activate-character-up");
 const activateCharacterDownBtn = document.getElementById("activate-character-down");
-const bluetoothScanBtn = document.getElementById("bluetooth-scan");
-const bluetoothDevicesEl = document.getElementById("bluetooth-devices");
-const pixelsRefreshBtn = document.getElementById("pixels-refresh");
-const pixelsDevicesEl = document.getElementById("pixels-devices");
-const pixelsModeSelectEl = document.getElementById("pixels-mode-select");
-const pixelsModeHelpEl = document.getElementById("pixels-mode-help");
-const pixelsCharacterAssignmentsEl = document.getElementById("pixels-character-assignments");
-const pixelsMonitorEl = document.getElementById("pixels-monitor");
-const pixelsEventsEl = document.getElementById("pixels-events");
-const clearPixelsEventsBtn = document.getElementById("clear-pixels-events");
 const initiativeRollDialogEl = document.getElementById("initiative-roll-dialog");
 const initiativeRollTitleEl = document.getElementById("initiative-roll-title");
 const initiativeRollStatusEl = document.getElementById("initiative-roll-status");
@@ -165,11 +144,6 @@ const SPECIAL_ABILITY_LABELS = {
   "INI Horsemen": "INI Reiter"
 };
 const HEADER_SETTINGS_CLOSE_DELAY_MS = 220;
-const PIXELS_MODE = {
-  PC_SET_3: "pc-set-3",
-  SHARED_SET_3: "shared-set-3",
-  PC_SINGLE_3X: "pc-single-3x"
-};
 let headerSettingsCloseTimer = null;
 let warningDialogResolver = null;
 let characterSettingsCloseTimer = null;
@@ -481,41 +455,6 @@ function setStatus(message) {
   renderLogs();
 }
 
-function getBluetoothOperation(address) {
-  return (state.bluetoothOperations || []).find((entry) => entry.address === address) || null;
-}
-
-function formatBluetoothStage(stage) {
-  switch (stage) {
-    case "inspect":
-      return "Pruefen";
-    case "scan":
-      return "Scan";
-    case "pair":
-      return "Pairing";
-    case "cleanup":
-      return "Reset";
-    case "trust":
-      return "Trust";
-    case "connect":
-      return "Connect";
-    case "disconnect":
-      return "Trennen";
-    case "ready":
-      return "Bereit";
-    default:
-      return "Bluetooth";
-  }
-}
-
-function renderBluetoothOperationControls() {
-  const scanOperation = getBluetoothOperation("__scan__");
-  if (bluetoothScanBtn) {
-    bluetoothScanBtn.disabled = scanOperation?.status === "running";
-    bluetoothScanBtn.textContent = scanOperation?.status === "running" ? "Scan läuft..." : "BLE-Geräte suchen";
-  }
-}
-
 function appendLogMessage(message, options = {}) {
   state.logEntries = [...state.logEntries, createLogEntry(message, { ...options, kind: "combat" }, state.logEntries)].slice(0, 60);
   renderLogs();
@@ -581,14 +520,6 @@ function clearSession() {
   state.session = null;
   state.liveConnected = false;
   state.view = null;
-  state.bluetoothDevices = [];
-  state.bluetoothOperations = [];
-  state.pixelsDevices = [];
-  state.pixelsMonitor = { monitors: [], recentEvents: [] };
-  state.selectedPixelsDevices = [];
-  state.pixelsAssignments = [];
-  state.pixelsConfig = normalizePixelsConfig({ mode: PIXELS_MODE.PC_SET_3, sharedSet: [null, null, null], gmSet: [null, null, null] });
-  state.pixelsRollProgress = [];
   state.library = { snapshots: [], groups: [] };
   state.initiativeDialogRequested = false;
   state.initiativeDialogInputs = {};
@@ -596,7 +527,6 @@ function clearSession() {
   state.undoStack = [];
   state.redoStack = [];
   closeInitiativeRollDialog();
-  renderBluetoothOperationControls();
   renderAuthControls();
 }
 
@@ -635,28 +565,6 @@ function toggleCharacterMinimized(characterId) {
     state.minimizedCharacterIds = [...state.minimizedCharacterIds, characterId];
   }
   renderView();
-}
-
-function openPixelsSettingsDialog() {
-  if (!pixelsSettingsDialogEl) {
-    return;
-  }
-  if (typeof pixelsSettingsDialogEl.showModal === "function") {
-    pixelsSettingsDialogEl.showModal();
-  } else {
-    pixelsSettingsDialogEl.setAttribute("open", "open");
-  }
-}
-
-function closePixelsSettingsDialog() {
-  if (!pixelsSettingsDialogEl) {
-    return;
-  }
-  if (typeof pixelsSettingsDialogEl.close === "function") {
-    pixelsSettingsDialogEl.close();
-  } else {
-    pixelsSettingsDialogEl.removeAttribute("open");
-  }
 }
 
 function openInitiativeRollDialog() {
@@ -773,7 +681,7 @@ function getDefaultInitiativeRollMode(type) {
 }
 
 function normalizeInitiativeRollMode(value, type = "PC") {
-  if (value === "automatic" || value === "manual" || value === "pixels") {
+  if (value === "automatic" || value === "manual") {
     return value;
   }
   return getDefaultInitiativeRollMode(type);
@@ -915,13 +823,7 @@ function renderGroupSheet() {
     groupSheetRollBtn.disabled = false;
   }
   if (state.groupSheet.pendingRoll?.status === "pending") {
-    const assignedDice = Array.isArray(state.groupSheet.pendingRoll.assignedDice) ? state.groupSheet.pendingRoll.assignedDice : [];
-    const collected = Array.isArray(state.groupSheet.pendingRoll.collected) ? state.groupSheet.pendingRoll.collected : [];
-    const sourceLabel = state.groupSheet.pendingRoll.source === "shared-set" ? "gemeinsames 3er-Set" : "SL-Set";
-    const collectedText = collected.length
-      ? ` Bereits erkannt: ${collected.map((entry) => `${entry.label}: ${entry.value}`).join(", ")}.`
-      : "";
-    groupSheetRollSummaryEl.textContent = `Warte auf Pixels-Wurf über ${sourceLabel}: ${assignedDice.map((entry) => entry.label).join(", ")}.${collectedText}`;
+    groupSheetRollSummaryEl.textContent = "Gruppenwurf läuft.";
   } else if (state.groupSheet.sharedRoll?.dice?.length === 3) {
     groupSheetRollSummaryEl.textContent = `Gruppenwurf: ${state.groupSheet.sharedRoll.dice.join(" + ")} = ${state.groupSheet.sharedRoll.total}`;
   } else {
@@ -1294,38 +1196,6 @@ async function removeCharactersByType(type = null) {
   }
 }
 
-function normalizePixelsMode(value) {
-  if (value === PIXELS_MODE.SHARED_SET_3 || value === PIXELS_MODE.PC_SINGLE_3X || value === PIXELS_MODE.PC_SET_3) {
-    return value;
-  }
-  return PIXELS_MODE.PC_SET_3;
-}
-
-function normalizeSharedSet(value) {
-  return Array.from({ length: 3 }, (_, index) => {
-    const entry = Array.isArray(value) ? value[index] : null;
-    return typeof entry === "string" && entry ? entry : "";
-  });
-}
-
-function normalizePixelsConfig(value) {
-  return {
-    mode: normalizePixelsMode(value?.mode),
-    sharedSet: normalizeSharedSet(value?.sharedSet),
-    gmSet: normalizeSharedSet(value?.gmSet)
-  };
-}
-
-function getPixelsModeDescription(mode) {
-  if (mode === PIXELS_MODE.PC_SINGLE_3X) {
-    return "Jeder SC nutzt einen eigenen Pixels-Würfel und würfelt damit dreimal.";
-  }
-  if (mode === PIXELS_MODE.SHARED_SET_3) {
-    return "Alle SC würfeln mit demselben 3er-Set in Reihenfolge des Charaktere/NSC-Panels.";
-  }
-  return "Jeder SC nutzt ein eigenes Set aus drei spezifischen Pixels.";
-}
-
 function getCharacterDetail(character) {
   if (!character) {
     return null;
@@ -1518,76 +1388,6 @@ function connectLiveUpdates() {
     applyResolvedInitiativeResults(collectResolvedInitiativeResults(previousView, state.view));
     renderView();
   });
-  eventSource.addEventListener("pixels-status", (event) => {
-    state.pixelsMonitor = JSON.parse(event.data);
-    renderPixelsMonitor();
-    renderPixelsDevices();
-  });
-  eventSource.addEventListener("bluetooth-operation", (event) => {
-    const payload = JSON.parse(event.data);
-    state.bluetoothOperations = payload.operations || [];
-    renderBluetoothOperationControls();
-    renderBluetoothDevices();
-    renderPixelsDevices();
-  });
-  eventSource.addEventListener("pixels-roll", (event) => {
-    const payload = JSON.parse(event.data);
-    const recentEvents = [payload, ...(state.pixelsMonitor?.recentEvents || [])].slice(0, 50);
-    state.pixelsMonitor = {
-      ...(state.pixelsMonitor || { monitors: [] }),
-      recentEvents
-    };
-    renderPixelsMonitor();
-  });
-  eventSource.addEventListener("pixels-assignments", (event) => {
-    const payload = JSON.parse(event.data);
-    state.pixelsAssignments = payload.assignments || [];
-    renderPixelsDevices();
-    renderPixelsCharacterAssignments();
-  });
-  eventSource.addEventListener("pixels-selection", (event) => {
-    const payload = JSON.parse(event.data);
-    state.selectedPixelsDevices = payload.selectedDevices || [];
-    renderBluetoothDevices();
-    renderPixelsDevices();
-    renderPixelsCharacterAssignments();
-  });
-  eventSource.addEventListener("pixels-config", (event) => {
-    const payload = JSON.parse(event.data);
-    state.pixelsConfig = normalizePixelsConfig(payload?.config);
-    renderPixelsDevices();
-    renderPixelsCharacterAssignments();
-  });
-  eventSource.addEventListener("pixels-roll-progress", (event) => {
-    const payload = JSON.parse(event.data);
-    state.pixelsRollProgress = [
-      payload,
-      ...(state.pixelsRollProgress || []).filter((entry) => entry.characterId !== payload.characterId)
-    ].slice(0, 20);
-    renderPixelsMonitor();
-  });
-  eventSource.addEventListener("pixels-roll-resolved", (event) => {
-    const payload = JSON.parse(event.data);
-    state.pixelsRollProgress = (state.pixelsRollProgress || []).filter((entry) => entry.characterId !== payload.characterId);
-    renderPixelsMonitor();
-  });
-  eventSource.addEventListener("group-sheet-roll", (event) => {
-    const payload = JSON.parse(event.data);
-    if (payload?.status === "pending") {
-      state.groupSheet.pendingRoll = payload;
-      state.groupSheet.sharedRoll = null;
-    } else if (payload?.status === "resolved") {
-      state.groupSheet.pendingRoll = null;
-      state.groupSheet.sharedRoll = {
-        dice: Array.isArray(payload.faces) ? payload.faces.slice(0, 3) : [],
-        total: Number(payload.total) || 0
-      };
-      setStatus(`Gruppencharakterblatt gewürfelt: ${(payload.faces || []).join("+")}=${payload.total}.`);
-    } else if (payload?.status === "idle" || payload?.status === "cancelled") {
-      state.groupSheet.pendingRoll = null;
-    }
-    renderGroupSheet();
-  });
   eventSource.onerror = () => {
     const wasConnected = state.liveConnected;
     state.liveConnected = false;
@@ -1682,7 +1482,7 @@ function getInteractivePendingInitiativeEntries(view) {
       const character = getCharacterById(view, input.request.characterId);
       const detail = getCharacterDetail(character);
       const mode = normalizeInitiativeRollMode(detail?.initiativeRollMode, character?.type);
-      if (!character || !detail || (mode !== "manual" && mode !== "pixels")) {
+      if (!character || !detail || mode !== "manual") {
         return null;
       }
       return { input, character, detail, mode };
@@ -1773,7 +1573,7 @@ function getInitiativeDialogInputState(characterId) {
 
 function createInitiativeRollBadge(text, className = "") {
   const badge = document.createElement("span");
-  badge.className = `pixels-roll-badge${className ? ` ${className}` : ""}`;
+  badge.className = `initiative-roll-badge${className ? ` ${className}` : ""}`;
   badge.textContent = text;
   return badge;
 }
@@ -1802,39 +1602,39 @@ function renderInitiativeRollDialog() {
   initiativeRollStatusEl.textContent = !entries.length && !dueEvents.length
     ? "Alle INI-Würfe übernommen."
     : dueEvents.length
-      ? "Fällige Ereignisse zuerst prüfen, danach manuelle Würfe eintragen und Pixels würfeln."
-      : "Trage manuelle Würfe ein und würfle für Pixels die markierten Würfel.";
+      ? "Fällige Ereignisse zuerst prüfen, danach manuelle Würfe eintragen."
+      : "Trage manuelle Würfe ein oder nutze den automatischen Wurf als Fallback.";
   initiativeRollListEl.innerHTML = "";
 
   for (const dueEvent of dueEvents) {
     const row = document.createElement("div");
-    row.className = "pixels-roll-row pending";
+    row.className = "initiative-roll-row pending";
 
     const head = document.createElement("div");
-    head.className = "pixels-roll-row-head";
+    head.className = "initiative-roll-row-head";
     const nameEl = document.createElement("strong");
     nameEl.textContent = dueEvent.description;
     head.appendChild(nameEl);
 
     const badgesEl = document.createElement("div");
-    badgesEl.className = "pixels-roll-row-badges";
+    badgesEl.className = "initiative-roll-row-badges";
     badgesEl.appendChild(createInitiativeRollBadge("Ereignis"));
     badgesEl.appendChild(createInitiativeRollBadge(`KR ${dueEvent.dueRound}`));
     head.appendChild(badgesEl);
     row.appendChild(head);
 
     const statusEl = document.createElement("p");
-    statusEl.className = "pixels-roll-row-status";
+    statusEl.className = "initiative-roll-row-status";
     statusEl.textContent = `Fällig seit Beginn von KR ${dueEvent.dueRound}.`;
     row.appendChild(statusEl);
 
     const detailEl = document.createElement("p");
-    detailEl.className = "pixels-roll-row-detail";
+    detailEl.className = "initiative-roll-row-detail";
     detailEl.textContent = "Nach Kenntnisnahme als erledigt markieren.";
     row.appendChild(detailEl);
 
     const controlsEl = document.createElement("div");
-    controlsEl.className = "pixels-roll-row-controls";
+    controlsEl.className = "initiative-roll-row-controls";
     const doneBtn = document.createElement("button");
     doneBtn.type = "button";
     doneBtn.textContent = "Erledigt";
@@ -1854,47 +1654,35 @@ function renderInitiativeRollDialog() {
   }
 
   for (const entry of entries) {
-    const { character, mode } = entry;
-    const progress = (state.pixelsRollProgress || []).find((item) => item.characterId === character.id) || null;
+    const { character } = entry;
     const row = document.createElement("div");
-    row.className = `pixels-roll-row ${mode === "pixels" ? "waiting" : "pending"}`;
+    row.className = "initiative-roll-row pending";
 
     const head = document.createElement("div");
-    head.className = "pixels-roll-row-head";
+    head.className = "initiative-roll-row-head";
     const nameEl = document.createElement("strong");
     nameEl.textContent = character.name;
     head.appendChild(nameEl);
 
     const badgesEl = document.createElement("div");
-    badgesEl.className = "pixels-roll-row-badges";
-    badgesEl.appendChild(createInitiativeRollBadge(mode === "manual" ? "Manuell" : "Pixels", mode));
+    badgesEl.className = "initiative-roll-row-badges";
+    badgesEl.appendChild(createInitiativeRollBadge("Manuell", "manual"));
     badgesEl.appendChild(createInitiativeRollBadge(character.type === "NPC" ? "NSC" : "SC"));
     head.appendChild(badgesEl);
     row.appendChild(head);
 
     const statusEl = document.createElement("p");
-    statusEl.className = "pixels-roll-row-status";
-    statusEl.textContent =
-      mode === "manual"
-        ? "3W6 eintragen und übernehmen."
-        : progress?.collected?.length
-          ? `Pixels-Wurf läuft: ${progress.collected.length}/${progress.requiredDice}`
-          : "Warte auf Pixels-Wurf.";
+    statusEl.className = "initiative-roll-row-status";
+    statusEl.textContent = "3W6 eintragen und übernehmen.";
     row.appendChild(statusEl);
 
     const detailEl = document.createElement("p");
-    detailEl.className = "pixels-roll-row-detail";
-    if (mode === "pixels") {
-      detailEl.textContent = progress?.collected?.length
-        ? progress.collected.map((item) => `${item.label}: ${item.value}`).join(" | ")
-        : "Die zugewiesenen Pixels für diesen Charakter jetzt würfeln.";
-    } else {
-      detailEl.textContent = "Bei kritischer 18 zusätzlich den Krit-W6 eintragen.";
-    }
+    detailEl.className = "initiative-roll-row-detail";
+    detailEl.textContent = "Bei kritischer 18 zusätzlich den Krit-W6 eintragen.";
     row.appendChild(detailEl);
 
     const controlsEl = document.createElement("div");
-    controlsEl.className = "pixels-roll-row-controls";
+    controlsEl.className = "initiative-roll-row-controls";
     const autoRollBtn = document.createElement("button");
     autoRollBtn.type = "button";
     autoRollBtn.className = "ghost";
@@ -1919,98 +1707,95 @@ function renderInitiativeRollDialog() {
       }
     });
     controlsEl.appendChild(autoRollBtn);
-    if (mode === "manual") {
-      const inputState = getInitiativeDialogInputState(character.id);
+    const inputState = getInitiativeDialogInputState(character.id);
+    const totalWrap = document.createElement("label");
+    totalWrap.className = "initiative-roll-input-wrap";
+    totalWrap.textContent = "3W6";
+    const totalInput = document.createElement("input");
+    totalInput.type = "number";
+    totalInput.min = "3";
+    totalInput.max = "18";
+    totalInput.step = "1";
+    totalInput.placeholder = "3-18";
+    totalInput.value = inputState.total;
+    totalWrap.appendChild(totalInput);
+    controlsEl.appendChild(totalWrap);
 
-      const totalWrap = document.createElement("label");
-      totalWrap.className = "pixels-roll-input-wrap";
-      totalWrap.textContent = "3W6";
-      const totalInput = document.createElement("input");
-      totalInput.type = "number";
-      totalInput.min = "3";
-      totalInput.max = "18";
-      totalInput.step = "1";
-      totalInput.placeholder = "3-18";
-      totalInput.value = inputState.total;
-      totalWrap.appendChild(totalInput);
-      controlsEl.appendChild(totalWrap);
+    const critWrap = document.createElement("label");
+    critWrap.className = "initiative-roll-input-wrap";
+    critWrap.textContent = "Krit-W6";
+    const critInput = document.createElement("input");
+    critInput.type = "number";
+    critInput.min = "1";
+    critInput.max = "6";
+    critInput.step = "1";
+    critInput.placeholder = "1-6";
+    critInput.value = inputState.critBonus;
+    critInput.disabled = String(totalInput.value).trim() !== "18";
+    critWrap.appendChild(critInput);
+    controlsEl.appendChild(critWrap);
 
-      const critWrap = document.createElement("label");
-      critWrap.className = "pixels-roll-input-wrap";
-      critWrap.textContent = "Krit-W6";
-      const critInput = document.createElement("input");
-      critInput.type = "number";
-      critInput.min = "1";
-      critInput.max = "6";
-      critInput.step = "1";
-      critInput.placeholder = "1-6";
-      critInput.value = inputState.critBonus;
+    totalInput.addEventListener("input", () => {
+      inputState.total = totalInput.value;
       critInput.disabled = String(totalInput.value).trim() !== "18";
-      critWrap.appendChild(critInput);
-      controlsEl.appendChild(critWrap);
+    });
+    critInput.addEventListener("input", () => {
+      inputState.critBonus = critInput.value;
+    });
 
-      totalInput.addEventListener("input", () => {
-        inputState.total = totalInput.value;
-        critInput.disabled = String(totalInput.value).trim() !== "18";
-      });
-      critInput.addEventListener("input", () => {
-        inputState.critBonus = critInput.value;
-      });
-
-      const submitBtn = document.createElement("button");
-      submitBtn.type = "button";
-      submitBtn.textContent = "Übernehmen";
-      submitBtn.addEventListener("click", async () => {
-        const total = parsePromptNumber(totalInput.value, 3, 18);
-        if (total === null) {
-          setStatus(`Ungültiger 3W6-Wert für ${character.name}.`);
+    const submitBtn = document.createElement("button");
+    submitBtn.type = "button";
+    submitBtn.textContent = "Übernehmen";
+    submitBtn.addEventListener("click", async () => {
+      const total = parsePromptNumber(totalInput.value, 3, 18);
+      if (total === null) {
+        setStatus(`Ungültiger 3W6-Wert für ${character.name}.`);
+        return;
+      }
+      let critBonusRoll = null;
+      if (total === 18) {
+        critBonusRoll = parsePromptNumber(critInput.value, 1, 6);
+        if (critBonusRoll === null) {
+          setStatus(`Ungültiger Krit-W6-Wert für ${character.name}.`);
           return;
         }
-        let critBonusRoll = null;
-        if (total === 18) {
-          critBonusRoll = parsePromptNumber(critInput.value, 1, 6);
-          if (critBonusRoll === null) {
-            setStatus(`Ungültiger Krit-W6-Wert für ${character.name}.`);
-            return;
-          }
-        }
-        try {
-          await sendCommand({
-            type: "resolve-initiative-roll",
-            characterId: character.id,
-            total,
-            critBonusRoll
-          });
-          delete state.initiativeDialogInputs[String(character.id)];
-          setStatus(`INI-Wurf übernommen: ${character.name}.`);
-        } catch (error) {
-          setStatus(`INI-Wurf fehlgeschlagen: ${error.message}`);
-        }
-      });
-      controlsEl.appendChild(submitBtn);
-    }
+      }
+      try {
+        await sendCommand({
+          type: "resolve-initiative-roll",
+          characterId: character.id,
+          total,
+          critBonusRoll
+        });
+        delete state.initiativeDialogInputs[String(character.id)];
+        setStatus(`INI-Wurf übernommen: ${character.name}.`);
+      } catch (error) {
+        setStatus(`INI-Wurf fehlgeschlagen: ${error.message}`);
+      }
+    });
+    controlsEl.appendChild(submitBtn);
     row.appendChild(controlsEl);
     initiativeRollListEl.appendChild(row);
   }
 
   for (const result of recentResults) {
     const row = document.createElement("div");
-    row.className = "pixels-roll-row resolved";
+    row.className = "initiative-roll-row resolved";
 
     const head = document.createElement("div");
-    head.className = "pixels-roll-row-head";
+    head.className = "initiative-roll-row-head";
     const nameEl = document.createElement("strong");
     nameEl.textContent = result.name;
     head.appendChild(nameEl);
 
     const badgesEl = document.createElement("div");
-    badgesEl.className = "pixels-roll-row-badges";
+    badgesEl.className = "initiative-roll-row-badges";
     badgesEl.appendChild(createInitiativeRollBadge("Übernommen", "resolved"));
     head.appendChild(badgesEl);
     row.appendChild(head);
 
     const statusEl = document.createElement("p");
-    statusEl.className = "pixels-roll-row-status";
+    statusEl.className = "initiative-roll-row-status";
     statusEl.textContent = result.summary;
     row.appendChild(statusEl);
 
@@ -2103,10 +1888,6 @@ function renderView() {
     roundStatusEl.textContent = "Kampfrunde: -";
     renderLogs();
     renderImportExportPanel();
-    renderBluetoothDevices();
-    renderPixelsDevices();
-    renderPixelsCharacterAssignments();
-    renderPixelsMonitor();
     renderTimedEvents();
     renderGroupSheet();
     renderInitiativeRollDialog();
@@ -2819,840 +2600,10 @@ function renderView() {
   activateCharacterDownBtn.disabled = !(view.turnEntries || []).length;
   renderLogs();
   renderImportExportPanel();
-  renderBluetoothDevices();
-  renderPixelsDevices();
-  renderPixelsCharacterAssignments();
-  renderPixelsMonitor();
   renderTimedEvents();
   renderGroupSheet();
   renderInitiativeRollDialog();
   updateHistoryButtons();
-}
-
-function renderBluetoothDevices() {
-  renderBluetoothOperationControls();
-  bluetoothDevicesEl.innerHTML = "";
-  if (!state.session || state.session.role !== "gm") {
-    const item = document.createElement("li");
-    item.textContent = "Bluetooth-Verwaltung ist nur im Spielleiter-Login sichtbar.";
-    bluetoothDevicesEl.appendChild(item);
-    return;
-  }
-
-  if (!state.bluetoothDevices.length) {
-    const item = document.createElement("li");
-    item.textContent = "Noch keine Bluetooth-Geräte geladen.";
-    bluetoothDevicesEl.appendChild(item);
-    return;
-  }
-
-  for (const device of state.bluetoothDevices) {
-    const item = document.createElement("li");
-    item.className = "compact-device-item";
-    const selectedPixel = (state.selectedPixelsDevices || []).find((entry) => entry.address === device.address);
-    const operation = getBluetoothOperation(device.address);
-    const title = document.createElement("strong");
-    title.className = "compact-device-name";
-    title.textContent = device.name || device.address;
-    item.appendChild(title);
-
-    if (operation) {
-      const progress = document.createElement("p");
-      progress.className = "character-meta";
-      progress.textContent = `${formatBluetoothStage(operation.stage)}: ${operation.message || operation.status}`;
-      item.appendChild(progress);
-    }
-
-    const actions = document.createElement("div");
-    actions.className = "device-actions compact-device-actions";
-
-    const selectPixelsBtn = document.createElement("button");
-    selectPixelsBtn.type = "button";
-    selectPixelsBtn.className = "compact-device-button";
-    selectPixelsBtn.textContent = selectedPixel ? "Gemerkt" : "Merken";
-    selectPixelsBtn.disabled = operation?.status === "running";
-    selectPixelsBtn.addEventListener("click", async () => {
-      try {
-        const payload = await requestJson("/api/pixels/selected", {
-          method: "POST",
-          body: JSON.stringify({
-            address: device.address,
-            name: device.name,
-            selected: !selectedPixel
-          })
-        });
-        state.selectedPixelsDevices = payload.selectedDevices || [];
-        renderBluetoothDevices();
-        await loadPixelsDevices();
-        setStatus(`Pixels-Auswahl für ${device.name} ${selectedPixel ? "entfernt" : "gespeichert"}.`);
-      } catch (error) {
-        setStatus(`Pixels-Auswahl fehlgeschlagen: ${error.message}`);
-      }
-    });
-    actions.appendChild(selectPixelsBtn);
-
-    item.appendChild(actions);
-    bluetoothDevicesEl.appendChild(item);
-  }
-}
-
-function renderPixelsDevices() {
-  pixelsDevicesEl.innerHTML = "";
-  if (!state.session || state.session.role !== "gm") {
-    const item = document.createElement("li");
-    item.textContent = "Pixels-Steuerung ist nur im Spielleiter-Login sichtbar.";
-    pixelsDevicesEl.appendChild(item);
-    return;
-  }
-
-  if (!state.pixelsDevices.length) {
-    const item = document.createElement("li");
-    item.textContent = "Noch keine als Pixels markierten BLE-Geräte geladen.";
-    pixelsDevicesEl.appendChild(item);
-    return;
-  }
-
-  for (const device of state.pixelsDevices) {
-    const item = document.createElement("li");
-    const assignment = (state.pixelsAssignments || []).find((entry) => entry.address === device.address);
-    const operation = getBluetoothOperation(device.address);
-
-    const title = document.createElement("strong");
-    title.textContent = `${device.name} (${device.address})`;
-    item.appendChild(title);
-
-    const meta = document.createElement("p");
-    meta.className = "character-meta";
-    const activeMonitor = (state.pixelsMonitor?.monitors || []).find((entry) => entry.address === device.address);
-    const assignmentText = assignment?.characterId
-      ? ` | Zuordnung: ${
-          (state.view?.characters || []).find((entry) => entry.id === assignment.characterId)?.name || assignment.characterId
-        } / Würfel ${assignment.slot}`
-      : "";
-    const effectiveConnected = Boolean(device.effectiveConnected ?? (device.connected || device.gattReady));
-    meta.textContent =
-      `Verbunden: ${effectiveConnected ? "ja" : "nein"} | Bereit: ${device.gattReady ? "ja" : "nein"} | Verfügbar: ${device.available ? "ja" : "nein"} | BlueZ verbunden: ${device.connected ? "ja" : "nein"} | Gepairt: ${device.paired ? "ja" : "nein"} | Protokoll: ${device.protocol} | Pixels-Kandidat: ${device.pixelsLikely ? "ja" : "nein"} | Watch: ${activeMonitor?.status || "aus"}${assignmentText}`;
-    item.appendChild(meta);
-
-    if (operation) {
-      const progress = document.createElement("p");
-      progress.className = "character-meta";
-      progress.textContent = `${formatBluetoothStage(operation.stage)}: ${operation.message || operation.status}`;
-      item.appendChild(progress);
-    }
-
-    const actions = document.createElement("div");
-    actions.className = "device-actions";
-    const needsRebind = !device.paired && !device.available;
-
-    const connectBtn = document.createElement("button");
-    connectBtn.type = "button";
-    connectBtn.textContent =
-      operation?.kind === "connect" && operation?.status === "running"
-        ? "Verbinde..."
-        : needsRebind
-          ? "Neu verbinden"
-          : "Verbinden";
-    connectBtn.disabled = effectiveConnected || operation?.status === "running";
-    connectBtn.addEventListener("click", async () => {
-      try {
-        setStatus(needsRebind ? `Neuverbinden für ${device.name} gestartet.` : `Bluetooth-Aufbau für ${device.name} gestartet.`);
-        const payload = await requestJson("/api/bluetooth/connect", {
-          method: "POST",
-          body: JSON.stringify({ address: device.address, name: device.name })
-        });
-        await loadBluetoothDevices();
-        await loadPixelsDevices();
-        const refreshedDevice = (state.pixelsDevices || []).find((entry) => entry.address === device.address);
-        const reboundPrefix = payload.reboundFromAddress ? `${device.name} neu zugeordnet und ` : `${device.name} `;
-        const readiness = refreshedDevice?.gattReady ? "Pixels bereit." : "Bluetooth verbunden, GATT folgt bei Bedarf.";
-        const pairingNote = payload.degradedPairing ? " Direkter GATT-Zugriff war ausreichend." : "";
-        setStatus(`${reboundPrefix}verbunden. ${readiness}${pairingNote}`);
-      } catch (error) {
-        setStatus(`Verbinden fehlgeschlagen: ${error.message}`);
-      }
-    });
-    actions.appendChild(connectBtn);
-
-    const disconnectBtn = document.createElement("button");
-    disconnectBtn.type = "button";
-    disconnectBtn.textContent = operation?.kind === "disconnect" && operation?.status === "running" ? "Trenne..." : "Trennen";
-    const canAttemptDisconnect = Boolean(effectiveConnected || device.available || device.connected || device.gattReady || device.paired);
-    disconnectBtn.disabled = !canAttemptDisconnect || operation?.status === "running";
-    disconnectBtn.addEventListener("click", async () => {
-      try {
-        await requestJson("/api/bluetooth/disconnect", {
-          method: "POST",
-          body: JSON.stringify({ address: device.address, name: device.name })
-        });
-        await loadBluetoothDevices();
-        await loadPixelsDevices();
-        setStatus(`${device.name} getrennt.`);
-      } catch (error) {
-        setStatus(`Trennen fehlgeschlagen: ${error.message}`);
-      }
-    });
-    actions.appendChild(disconnectBtn);
-
-    const identifyBtn = document.createElement("button");
-    identifyBtn.type = "button";
-    identifyBtn.textContent = "Identifizieren";
-    identifyBtn.disabled = operation?.status === "running";
-    identifyBtn.addEventListener("click", async () => {
-      try {
-        const payload = await requestJson("/api/pixels/blink", {
-          method: "POST",
-          body: JSON.stringify({
-            address: device.address,
-            color: "#00ff00",
-            count: 1,
-            duration: 420,
-            loopCount: 1
-          })
-        });
-        setStatus(
-          `Pixels-Test an ${device.name} gesendet. | path: ${payload.device?.writeCharacteristicPath || "-"} | hex: ${payload.device?.requestHex || "-"}`
-        );
-      } catch (error) {
-        setStatus(`Pixels-Test fehlgeschlagen: ${error.message}`);
-      }
-    });
-    actions.appendChild(identifyBtn);
-
-    const watchBtn = document.createElement("button");
-    watchBtn.type = "button";
-    watchBtn.textContent = activeMonitor ? "Watch stoppen" : "Watch starten";
-    watchBtn.disabled = operation?.status === "running";
-    watchBtn.addEventListener("click", async () => {
-      try {
-        await requestJson(activeMonitor ? "/api/pixels/watch/stop" : "/api/pixels/watch/start", {
-          method: "POST",
-          body: JSON.stringify({ address: device.address })
-        });
-        await loadPixelsMonitor();
-        await loadPixelsDevices();
-        setStatus(`Pixels-Watch für ${device.name} ${activeMonitor ? "gestoppt" : "gestartet"}.`);
-      } catch (error) {
-        setStatus(`Pixels-Watch fehlgeschlagen: ${error.message}`);
-      }
-    });
-    actions.appendChild(watchBtn);
-
-    item.appendChild(actions);
-
-    if (device.writeCharacteristicPath || device.notifyCharacteristicPath) {
-      const detail = document.createElement("p");
-      detail.className = "device-path";
-      detail.textContent =
-        `Write: ${device.writeCharacteristicPath || "-"} | Notify: ${device.notifyCharacteristicPath || "-"}`;
-      item.appendChild(detail);
-    }
-
-    pixelsDevicesEl.appendChild(item);
-  }
-}
-
-function buildPixelsDeviceSelect(slot, selectedAddress = "") {
-  const select = document.createElement("select");
-  const emptyOption = document.createElement("option");
-  emptyOption.value = "";
-  emptyOption.textContent = `W${slot} zuordnen`;
-  select.appendChild(emptyOption);
-
-  for (const device of state.selectedPixelsDevices || []) {
-    const option = document.createElement("option");
-    option.value = device.address;
-    option.textContent = device.name || device.address;
-    select.appendChild(option);
-  }
-
-  select.value = selectedAddress || "";
-  return select;
-}
-
-function buildPixelsSingleDeviceSelect(label, selectedAddress = "") {
-  const select = document.createElement("select");
-  const emptyOption = document.createElement("option");
-  emptyOption.value = "";
-  emptyOption.textContent = label;
-  select.appendChild(emptyOption);
-
-  for (const device of state.selectedPixelsDevices || []) {
-    const option = document.createElement("option");
-    option.value = device.address;
-    option.textContent = device.name || device.address;
-    select.appendChild(option);
-  }
-
-  select.value = selectedAddress || "";
-  return select;
-}
-
-function getReservedPixelAddresses(exclusions = []) {
-  const excludedSet = new Set(exclusions.filter(Boolean));
-  const reserved = new Set();
-
-  for (const assignment of state.pixelsAssignments || []) {
-    if (!excludedSet.has(assignment.address)) {
-      reserved.add(assignment.address);
-    }
-  }
-
-  for (const address of normalizeSharedSet(state.pixelsConfig?.sharedSet)) {
-    if (address && !excludedSet.has(address)) {
-      reserved.add(address);
-    }
-  }
-
-  for (const address of normalizeSharedSet(state.pixelsConfig?.gmSet)) {
-    if (address && !excludedSet.has(address)) {
-      reserved.add(address);
-    }
-  }
-
-  return reserved;
-}
-
-function getSharedReservedPixelAddresses(exclusions = []) {
-  const excludedSet = new Set(exclusions.filter(Boolean));
-  const reserved = new Set();
-  for (const address of normalizeSharedSet(state.pixelsConfig?.sharedSet)) {
-    if (address && !excludedSet.has(address)) {
-      reserved.add(address);
-    }
-  }
-  return reserved;
-}
-
-function applyPixelSelectAvailability(selectEntries, characterId) {
-  for (const currentEntry of selectEntries) {
-    const currentValue = currentEntry.select.value || "";
-    const siblingValues = selectEntries
-      .filter((entry) => entry !== currentEntry)
-      .map((entry) => entry.select.value)
-      .filter(Boolean);
-
-    const reserved = getReservedPixelAddresses([
-      currentValue,
-      ...siblingValues,
-      ...(state.pixelsAssignments || [])
-        .filter((assignment) => assignment.characterId === characterId)
-        .map((assignment) => assignment.address)
-    ]);
-
-    for (const option of currentEntry.select.options) {
-      if (!option.value) {
-        option.disabled = false;
-        continue;
-      }
-
-      const usedInCurrentCharacter = siblingValues.includes(option.value);
-      const usedElsewhere = reserved.has(option.value) && option.value !== currentValue;
-      option.disabled = usedInCurrentCharacter || usedElsewhere;
-    }
-  }
-}
-
-function renderPixelsCharacterAssignments() {
-  pixelsCharacterAssignmentsEl.innerHTML = "";
-  if (!state.session || state.session.role !== "gm") {
-    return;
-  }
-  const pixelsMode = normalizePixelsMode(state.pixelsConfig?.mode);
-  if (pixelsModeSelectEl) {
-    pixelsModeSelectEl.value = pixelsMode;
-  }
-  if (pixelsModeHelpEl) {
-    pixelsModeHelpEl.textContent = getPixelsModeDescription(pixelsMode);
-  }
-
-  const playerCharacters = (state.view?.characters || []).filter((character) => character.type === "PC");
-  if (!playerCharacters.length) {
-    const note = document.createElement("p");
-    note.className = "hint";
-    note.textContent = "Keine SCs geladen.";
-    pixelsCharacterAssignmentsEl.appendChild(note);
-    return;
-  }
-
-  if (!(state.selectedPixelsDevices || []).length) {
-    const note = document.createElement("p");
-    note.className = "hint";
-    note.textContent = "Noch keine BLE-Geräte als Pixels gemerkt.";
-    pixelsCharacterAssignmentsEl.appendChild(note);
-    return;
-  }
-
-  const gmSetRow = document.createElement("article");
-  gmSetRow.className = "character-card";
-
-  const gmTitle = document.createElement("strong");
-  gmTitle.textContent = "Spielleiter";
-  gmSetRow.appendChild(gmTitle);
-
-  const gmHint = document.createElement("p");
-  gmHint.className = "hint";
-  gmHint.textContent =
-    "Dieses 3er-Set wird für das Gruppencharakterblatt genutzt. Ohne eigenes SL-Set wird ersatzweise das gemeinsame 3er-Set genutzt, solange keine Initiative-Pixelswürfe offen sind.";
-  gmSetRow.appendChild(gmHint);
-
-  const gmControls = document.createElement("div");
-  gmControls.className = "device-actions";
-  const gmSelections = [];
-  const gmSet = normalizeSharedSet(state.pixelsConfig?.gmSet);
-  for (const slot of [1, 2, 3]) {
-    const select = buildPixelsDeviceSelect(slot, gmSet[slot - 1] || "");
-    select.addEventListener("change", () => {
-      for (const currentEntry of gmSelections) {
-        const currentValue = currentEntry.select.value || "";
-        const siblingValues = gmSelections
-          .filter((entry) => entry !== currentEntry)
-          .map((entry) => entry.select.value)
-          .filter(Boolean);
-        const reserved = getReservedPixelAddresses([currentValue, ...siblingValues]);
-        for (const option of currentEntry.select.options) {
-          if (!option.value) {
-            option.disabled = false;
-            continue;
-          }
-          const usedInGmSet = siblingValues.includes(option.value);
-          const usedElsewhere = reserved.has(option.value) && option.value !== currentValue;
-          option.disabled = usedInGmSet || usedElsewhere;
-        }
-      }
-    });
-    gmSelections.push({ slot, select });
-    gmControls.appendChild(select);
-  }
-  gmSelections[0]?.select.dispatchEvent(new Event("change"));
-
-  const gmSaveBtn = document.createElement("button");
-  gmSaveBtn.type = "button";
-  gmSaveBtn.textContent = "Zuordnungen speichern";
-  gmSaveBtn.addEventListener("click", async () => {
-    try {
-      const payload = await requestJson("/api/pixels/config", {
-        method: "POST",
-        body: JSON.stringify({
-          mode: pixelsMode,
-          sharedSet: normalizeSharedSet(state.pixelsConfig?.sharedSet),
-          gmSet: gmSelections.map((entry) => entry.select.value || null)
-        })
-      });
-      state.pixelsConfig = normalizePixelsConfig(payload?.config);
-      renderPixelsCharacterAssignments();
-      setStatus("SL-Pixels-Set gespeichert.");
-    } catch (error) {
-      setStatus(`SL-Pixels-Set fehlgeschlagen: ${error.message}`);
-    }
-  });
-  gmControls.appendChild(gmSaveBtn);
-
-  const gmClearBtn = document.createElement("button");
-  gmClearBtn.type = "button";
-  gmClearBtn.textContent = "Zuordnung löschen";
-  gmClearBtn.addEventListener("click", async () => {
-    try {
-      const payload = await requestJson("/api/pixels/config", {
-        method: "POST",
-        body: JSON.stringify({
-          mode: pixelsMode,
-          sharedSet: normalizeSharedSet(state.pixelsConfig?.sharedSet),
-          gmSet: [null, null, null]
-        })
-      });
-      state.pixelsConfig = normalizePixelsConfig(payload?.config);
-      renderPixelsCharacterAssignments();
-      setStatus("SL-Pixels-Set gelöscht.");
-    } catch (error) {
-      setStatus(`SL-Pixels-Set konnte nicht gelöscht werden: ${error.message}`);
-    }
-  });
-  gmControls.appendChild(gmClearBtn);
-  gmSetRow.appendChild(gmControls);
-  pixelsCharacterAssignmentsEl.appendChild(gmSetRow);
-
-  if (pixelsMode === PIXELS_MODE.SHARED_SET_3) {
-    const row = document.createElement("article");
-    row.className = "character-card";
-
-    const title = document.createElement("strong");
-    title.textContent = "Gemeinsames Set";
-    row.appendChild(title);
-
-    const orderHint = document.createElement("p");
-    orderHint.className = "hint";
-    orderHint.textContent = `Reihenfolge: ${playerCharacters.map((character) => character.name).join(" → ")}`;
-    row.appendChild(orderHint);
-
-    const controls = document.createElement("div");
-    controls.className = "device-actions";
-    const slotSelections = [];
-    const sharedSet = normalizeSharedSet(state.pixelsConfig?.sharedSet);
-    for (const slot of [1, 2, 3]) {
-      const select = buildPixelsDeviceSelect(slot, sharedSet[slot - 1] || "");
-      select.addEventListener("change", () => {
-        for (const currentEntry of slotSelections) {
-          const currentValue = currentEntry.select.value || "";
-          const siblingValues = slotSelections
-            .filter((entry) => entry !== currentEntry)
-            .map((entry) => entry.select.value)
-            .filter(Boolean);
-          for (const option of currentEntry.select.options) {
-            if (!option.value) {
-              option.disabled = false;
-              continue;
-            }
-            const usedInSharedSet = siblingValues.includes(option.value);
-            option.disabled = usedInSharedSet && option.value !== currentValue;
-          }
-        }
-      });
-      slotSelections.push({ slot, select });
-      controls.appendChild(select);
-    }
-    slotSelections[0]?.select.dispatchEvent(new Event("change"));
-
-    const saveBtn = document.createElement("button");
-    saveBtn.type = "button";
-    saveBtn.textContent = "Zuordnungen speichern";
-    saveBtn.addEventListener("click", async () => {
-      try {
-        const sharedSetPayload = slotSelections.map((entry) => entry.select.value || null);
-        const payload = await requestJson("/api/pixels/config", {
-          method: "POST",
-          body: JSON.stringify({
-            mode: pixelsMode,
-            sharedSet: sharedSetPayload,
-            gmSet: normalizeSharedSet(state.pixelsConfig?.gmSet)
-          })
-        });
-        state.pixelsConfig = normalizePixelsConfig(payload?.config);
-        renderPixelsCharacterAssignments();
-        setStatus("Gemeinsames Pixels-Set gespeichert.");
-      } catch (error) {
-        setStatus(`Pixels-Zuordnungen fehlgeschlagen: ${error.message}`);
-      }
-    });
-    controls.appendChild(saveBtn);
-
-    const clearBtn = document.createElement("button");
-    clearBtn.type = "button";
-    clearBtn.textContent = "Zuordnung löschen";
-    clearBtn.addEventListener("click", async () => {
-      try {
-        const payload = await requestJson("/api/pixels/config", {
-          method: "POST",
-          body: JSON.stringify({
-            mode: pixelsMode,
-            sharedSet: [null, null, null],
-            gmSet: normalizeSharedSet(state.pixelsConfig?.gmSet)
-          })
-        });
-        state.pixelsConfig = normalizePixelsConfig(payload?.config);
-        renderPixelsCharacterAssignments();
-        setStatus("Gemeinsames Pixels-Set gelöscht.");
-      } catch (error) {
-        setStatus(`Pixels-Zuordnungen konnten nicht gelöscht werden: ${error.message}`);
-      }
-    });
-    controls.appendChild(clearBtn);
-    row.appendChild(controls);
-    pixelsCharacterAssignmentsEl.appendChild(row);
-    return;
-  }
-
-  for (const character of playerCharacters) {
-    const row = document.createElement("article");
-    row.className = "character-card";
-
-    const title = document.createElement("strong");
-    title.textContent = character.name;
-    row.appendChild(title);
-
-    const assignmentsForCharacter = (state.pixelsAssignments || []).filter((entry) => entry.characterId === character.id);
-    const controls = document.createElement("div");
-    controls.className = "device-actions";
-
-    const slotSelections = [];
-    const slots = pixelsMode === PIXELS_MODE.PC_SINGLE_3X ? [1] : [1, 2, 3];
-    for (const slot of slots) {
-      const assignedEntry = assignmentsForCharacter.find((entry) => entry.slot === slot) || assignmentsForCharacter[0];
-      const select =
-        pixelsMode === PIXELS_MODE.PC_SINGLE_3X
-          ? buildPixelsSingleDeviceSelect("Pixel zuordnen", assignedEntry?.address || "")
-          : buildPixelsDeviceSelect(slot, assignedEntry?.address || "");
-      select.addEventListener("change", () => {
-        if (pixelsMode === PIXELS_MODE.PC_SINGLE_3X) {
-          for (const currentEntry of slotSelections) {
-            const currentValue = currentEntry.select.value || "";
-            const reserved = getReservedPixelAddresses([
-              currentValue,
-              ...(state.pixelsAssignments || [])
-                .filter((assignment) => assignment.characterId === character.id)
-                .map((assignment) => assignment.address)
-            ]);
-            const sharedReserved = getSharedReservedPixelAddresses([currentValue]);
-            for (const option of currentEntry.select.options) {
-              if (!option.value) {
-                option.disabled = false;
-                continue;
-              }
-              option.disabled =
-                (reserved.has(option.value) && option.value !== currentValue) ||
-                (sharedReserved.has(option.value) && option.value !== currentValue);
-            }
-          }
-        } else {
-          applyPixelSelectAvailability(slotSelections, character.id);
-        }
-      });
-      slotSelections.push({ slot, select });
-      controls.appendChild(select);
-    }
-
-    if (pixelsMode === PIXELS_MODE.PC_SINGLE_3X) {
-      slotSelections[0]?.select.dispatchEvent(new Event("change"));
-    } else {
-      applyPixelSelectAvailability(slotSelections, character.id);
-    }
-
-    const saveBtn = document.createElement("button");
-    saveBtn.type = "button";
-    saveBtn.textContent = "Zuordnungen speichern";
-    saveBtn.addEventListener("click", async () => {
-      try {
-        const requestedAddresses = new Set(
-          slotSelections.map((entry) => entry.select.value).filter(Boolean)
-        );
-        const currentAssignments = (state.pixelsAssignments || []).filter((entry) => entry.characterId === character.id);
-
-        for (const assignment of currentAssignments) {
-          if (!requestedAddresses.has(assignment.address)) {
-            await requestJson("/api/pixels/assignments", {
-              method: "POST",
-              body: JSON.stringify({
-                address: assignment.address,
-                characterId: null,
-                slot: null
-              })
-            });
-          }
-        }
-
-        for (const entry of slotSelections) {
-          if (!entry.select.value) {
-            continue;
-          }
-          await requestJson("/api/pixels/assignments", {
-            method: "POST",
-            body: JSON.stringify({
-              address: entry.select.value,
-              characterId: character.id,
-              slot: pixelsMode === PIXELS_MODE.PC_SINGLE_3X ? 1 : entry.slot
-            })
-          });
-        }
-
-        await loadPixelsAssignments();
-        setStatus(`Pixels-Zuordnungen für ${character.name} gespeichert.`);
-      } catch (error) {
-        setStatus(`Pixels-Zuordnungen fehlgeschlagen: ${error.message}`);
-      }
-    });
-    controls.appendChild(saveBtn);
-
-    const clearBtn = document.createElement("button");
-    clearBtn.type = "button";
-    clearBtn.textContent = "Zuordnung löschen";
-    clearBtn.addEventListener("click", async () => {
-      try {
-        for (const assignment of assignmentsForCharacter) {
-          await requestJson("/api/pixels/assignments", {
-            method: "POST",
-            body: JSON.stringify({
-              address: assignment.address,
-              characterId: null,
-              slot: null
-            })
-          });
-        }
-        await loadPixelsAssignments();
-        setStatus(`Pixels-Zuordnungen für ${character.name} gelöscht.`);
-      } catch (error) {
-        setStatus(`Pixels-Zuordnungen konnten nicht gelöscht werden: ${error.message}`);
-      }
-    });
-    controls.appendChild(clearBtn);
-
-    row.appendChild(controls);
-    pixelsCharacterAssignmentsEl.appendChild(row);
-  }
-}
-
-function renderPixelsMonitor() {
-  pixelsMonitorEl.innerHTML = "";
-  pixelsEventsEl.innerHTML = "";
-
-  if (!state.session || state.session.role !== "gm") {
-    const item = document.createElement("li");
-    item.textContent = "Pixels-Liveansicht ist nur im Spielleiter-Login sichtbar.";
-    pixelsMonitorEl.appendChild(item);
-    return;
-  }
-
-  const monitors = state.pixelsMonitor?.monitors || [];
-  if (!monitors.length) {
-    const item = document.createElement("li");
-    item.textContent = "Keine aktiven Pixels-Watches.";
-    pixelsMonitorEl.appendChild(item);
-  } else {
-    for (const monitor of monitors) {
-      const item = document.createElement("li");
-      const title = document.createElement("strong");
-      title.textContent = `${monitor.deviceName || monitor.address} | ${monitor.status}`;
-      item.appendChild(title);
-
-      const meta = document.createElement("p");
-      meta.className = "character-meta";
-      meta.textContent =
-        `Protokoll: ${monitor.protocol} | Letztes Event: ${monitor.lastEventAt || "-"}${monitor.lastError ? ` | Fehler: ${monitor.lastError}` : ""}`;
-      item.appendChild(meta);
-      pixelsMonitorEl.appendChild(item);
-    }
-  }
-
-  const progressEntries = state.pixelsRollProgress || [];
-  for (const progress of progressEntries.slice(0, 6)) {
-    const item = document.createElement("li");
-    const title = document.createElement("strong");
-    const characterName = (state.view?.characters || []).find((entry) => entry.id === progress.characterId)?.name || progress.characterId;
-    title.textContent = `INI-Sammelwurf ${characterName}: ${progress.collected.length}/${progress.requiredDice}`;
-    item.appendChild(title);
-
-    const meta = document.createElement("p");
-    meta.className = "character-meta";
-    meta.textContent = progress.assignedDice
-      .map((entry) => {
-        const collected = progress.collected.find((candidate) => candidate.address === entry.address);
-        return `W${entry.slot}: ${collected?.value ?? "-"} (${entry.address})`;
-      })
-      .join(" | ");
-    item.appendChild(meta);
-    pixelsMonitorEl.appendChild(item);
-  }
-
-  const latestCompletedEventsByAddress = new Map();
-  for (const event of state.pixelsMonitor?.recentEvents || []) {
-    if (!event?.address || !event?.rollState || !["rolled", "onFace"].includes(event.rollState.state)) {
-      continue;
-    }
-    if (!latestCompletedEventsByAddress.has(event.address)) {
-      latestCompletedEventsByAddress.set(event.address, event);
-    }
-  }
-  const completedRollEvents = Array.from(latestCompletedEventsByAddress.values()).sort((left, right) =>
-    String(right.at || "").localeCompare(String(left.at || ""))
-  );
-  if (!completedRollEvents.length) {
-    const item = document.createElement("li");
-    item.textContent = "Noch keine abgeschlossenen Pixels-Würfe empfangen.";
-    pixelsEventsEl.appendChild(item);
-    return;
-  }
-
-  for (const event of completedRollEvents.slice(0, 12)) {
-    const item = document.createElement("li");
-    const title = document.createElement("strong");
-    const rollText = `${event.rollState.state} | FaceIndex ${event.rollState.faceIndex} | Face ${event.rollState.face}`;
-    title.textContent = `${event.deviceName || event.address} | ${rollText}`;
-    item.appendChild(title);
-
-    const meta = document.createElement("p");
-    meta.className = "character-meta";
-    meta.textContent = `${event.at || "-"} | ${event.rawHex || "-"}`;
-    item.appendChild(meta);
-    pixelsEventsEl.appendChild(item);
-  }
-}
-
-async function loadBluetoothDevices(scan = false) {
-  if (!state.session || state.session.role !== "gm") {
-    state.bluetoothDevices = [];
-    renderBluetoothDevices();
-    return;
-  }
-
-  const path = scan ? "/api/bluetooth/scan" : "/api/bluetooth/devices";
-  const payload = await requestJson(path, {
-    method: scan ? "POST" : "GET",
-    body: scan ? JSON.stringify({ seconds: 6 }) : undefined
-  });
-  state.bluetoothDevices = payload.devices || [];
-  renderBluetoothDevices();
-}
-
-async function loadPixelsDevices(discover = false) {
-  if (!state.session || state.session.role !== "gm") {
-    state.pixelsDevices = [];
-    renderPixelsDevices();
-    return;
-  }
-
-  const payload = await requestJson(`/api/pixels/devices${discover ? "?discover=1" : ""}`);
-  state.pixelsDevices = payload.devices || [];
-  renderPixelsDevices();
-}
-
-async function loadPixelsAssignments() {
-  if (!state.session || state.session.role !== "gm") {
-    state.pixelsAssignments = [];
-    renderPixelsDevices();
-    return;
-  }
-
-  const payload = await requestJson("/api/pixels/assignments");
-  state.pixelsAssignments = payload.assignments || [];
-  renderPixelsDevices();
-  renderPixelsCharacterAssignments();
-}
-
-async function loadPixelsConfig() {
-  if (!state.token) {
-    state.pixelsConfig = normalizePixelsConfig({ mode: PIXELS_MODE.PC_SET_3, sharedSet: [null, null, null], gmSet: [null, null, null] });
-    renderPixelsCharacterAssignments();
-    return;
-  }
-  const payload = await requestJson("/api/pixels/config");
-  state.pixelsConfig = normalizePixelsConfig(payload?.config);
-  renderPixelsCharacterAssignments();
-}
-
-async function loadSelectedPixels() {
-  if (!state.session || state.session.role !== "gm") {
-    state.selectedPixelsDevices = [];
-    renderBluetoothDevices();
-    renderPixelsDevices();
-    return;
-  }
-
-  const payload = await requestJson("/api/pixels/selected");
-  state.selectedPixelsDevices = payload.selectedDevices || [];
-  renderBluetoothDevices();
-  renderPixelsDevices();
-  renderPixelsCharacterAssignments();
-}
-
-async function loadPixelsMonitor() {
-  if (!state.session || state.session.role !== "gm") {
-    state.pixelsMonitor = { monitors: [], recentEvents: [] };
-    renderPixelsMonitor();
-    return;
-  }
-
-  const payload = await requestJson("/api/pixels/monitor");
-  state.pixelsMonitor = payload;
-  renderPixelsMonitor();
 }
 
 async function refreshState() {
@@ -3696,12 +2647,6 @@ async function finishGmLogin(payload) {
   setStatus(`Als ${getSessionDisplayName()} (SL) eingeloggt.`);
   renderView();
   connectLiveUpdates();
-  await loadBluetoothDevices();
-  await loadPixelsMonitor();
-  await loadSelectedPixels();
-  await loadPixelsConfig();
-  await loadPixelsAssignments();
-  await loadPixelsDevices();
 }
 
 loginFormEl?.addEventListener("submit", async (event) => {
@@ -3724,19 +2669,9 @@ loginFormEl?.addEventListener("submit", async (event) => {
 refreshStateBtn.addEventListener("click", async () => {
   try {
     await refreshState();
-    await loadBluetoothDevices();
-    await loadPixelsMonitor();
-    await loadSelectedPixels();
-    await loadPixelsConfig();
-    await loadPixelsAssignments();
-    await loadPixelsDevices();
   } catch (error) {
     setStatus(`Aktualisierung fehlgeschlagen: ${error.message}`);
   }
-});
-
-openPixelsSettingsBtn?.addEventListener("click", () => {
-  openPixelsSettingsDialog();
 });
 
 headerSettingsMenuEl?.addEventListener("mouseleave", () => {
@@ -3817,19 +2752,6 @@ removePcCharactersBtn?.addEventListener("click", async () => {
 
 removeNpcCharactersBtn?.addEventListener("click", async () => {
   await removeCharactersByType("NPC");
-});
-
-pixelsSettingsCloseBtn?.addEventListener("click", () => {
-  closePixelsSettingsDialog();
-});
-
-clearPixelsEventsBtn?.addEventListener("click", () => {
-  state.pixelsMonitor = {
-    ...(state.pixelsMonitor || { monitors: [] }),
-    recentEvents: []
-  };
-  renderPixelsMonitor();
-  setStatus("Alte Pixels-Events gelöscht.");
 });
 
 initiativeRollCloseBtn?.addEventListener("click", () => {
@@ -3985,23 +2907,6 @@ autoCloseInitiativeDialogEl?.addEventListener("change", () => {
 });
 
 groupSheetRollBtn?.addEventListener("click", async () => {
-  try {
-    const payload = await requestJson("/api/group-sheet/roll", {
-      method: "POST",
-      body: JSON.stringify({})
-    });
-    if (payload?.mode === "pixels") {
-      state.groupSheet.pendingRoll = payload.pendingRoll || null;
-      state.groupSheet.sharedRoll = null;
-      renderGroupSheet();
-      setStatus(
-        `Gruppencharakterblatt wartet auf Pixels-Wurf über ${payload.pendingRoll?.source === "shared-set" ? "gemeinsames Set" : "SL-Set"}.`
-      );
-      return;
-    }
-  } catch (error) {
-    setStatus(`Pixels-Gruppenwurf nicht verfügbar: ${error.message}. Es wird lokal gewürfelt.`);
-  }
   const dice = [rollLocalD6(), rollLocalD6(), rollLocalD6()];
   const total = dice.reduce((sum, value) => sum + value, 0);
   state.groupSheet.pendingRoll = null;
@@ -4141,40 +3046,12 @@ resetAppStateBtn?.addEventListener("click", async () => {
     state.undoStack = [];
     state.redoStack = [];
     state.minimizedCharacterIds = [];
-    state.pixelsAssignments = payload.assignments || state.pixelsAssignments;
-    state.selectedPixelsDevices = payload.selectedDevices || state.selectedPixelsDevices;
-    state.pixelsConfig = payload.config ? normalizePixelsConfig(payload.config) : state.pixelsConfig;
     state.groupSheet.pendingRoll = null;
     state.groupSheet.sharedRoll = null;
     renderView();
     setStatus("Tracker wurde zurückgesetzt.");
   } catch (error) {
     setStatus(`Tracker-Reset fehlgeschlagen: ${error.message}`);
-  }
-});
-
-pixelsRefreshBtn.addEventListener("click", async () => {
-  try {
-    setStatus("Pixels-Geräte werden geladen...");
-    await loadPixelsMonitor();
-    await loadSelectedPixels();
-    await loadPixelsConfig();
-    await loadPixelsAssignments();
-    await loadPixelsDevices(true);
-    setStatus("Pixels-Geräte aktualisiert.");
-  } catch (error) {
-    setStatus(`Pixels-Aktualisierung fehlgeschlagen: ${error.message}`);
-  }
-});
-
-bluetoothScanBtn.addEventListener("click", async () => {
-  try {
-    setStatus("Bluetooth-Scan läuft...");
-    await loadBluetoothDevices(true);
-    await loadPixelsConfig();
-    setStatus("Bluetooth-Scan abgeschlossen.");
-  } catch (error) {
-    setStatus(`Bluetooth-Scan fehlgeschlagen: ${error.message}`);
   }
 });
 
@@ -4232,24 +3109,6 @@ toggleAllNpcSurprisedEl?.addEventListener("change", async () => {
     setStatus(`Alle NSC ${toggleAllNpcSurprisedEl.checked ? "überrascht" : "nicht überrascht"}.`);
   } catch (error) {
     setStatus(`NSC-Überraschung fehlgeschlagen: ${error.message}`);
-  }
-});
-
-pixelsModeSelectEl?.addEventListener("change", async () => {
-  try {
-    const payload = await requestJson("/api/pixels/config", {
-      method: "POST",
-      body: JSON.stringify({
-        mode: normalizePixelsMode(pixelsModeSelectEl.value),
-        sharedSet: normalizeSharedSet(state.pixelsConfig?.sharedSet),
-        gmSet: normalizeSharedSet(state.pixelsConfig?.gmSet)
-      })
-    });
-    state.pixelsConfig = normalizePixelsConfig(payload?.config);
-    renderPixelsCharacterAssignments();
-    setStatus("Pixels-Modus gespeichert.");
-  } catch (error) {
-    setStatus(`Pixels-Modus fehlgeschlagen: ${error.message}`);
   }
 });
 
@@ -4447,12 +3306,6 @@ async function init() {
         return;
       }
       connectLiveUpdates();
-      await loadBluetoothDevices();
-      await loadPixelsMonitor();
-      await loadSelectedPixels();
-      await loadPixelsConfig();
-      await loadPixelsAssignments();
-      await loadPixelsDevices();
     } catch (error) {
       setStatus(`Gespeicherte Sitzung ungültig: ${error.message}`);
     }

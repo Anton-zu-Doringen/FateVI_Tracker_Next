@@ -43,12 +43,6 @@
                     <input id="auto-close-initiative-dialog" type="checkbox" checked />
                   </label>
                   <button id="reset-app-state" class="ghost" type="button">Tracker resetten</button>
-                  <div class="settings-submenu settings-submenu-static">
-                    <div class="settings-submenu-title">Pixels</div>
-                    <div class="settings-submenu-body">
-                      <button id="open-pixels-settings" class="ghost" type="button">Pixels Einstellungen</button>
-                    </div>
-                  </div>
                 </div>
               </details>
             </div>
@@ -286,7 +280,6 @@
           <select id="edit-initiative-roll-mode" name="initiativeRollMode">
             <option value="automatic">Automatisch</option>
             <option value="manual">Manuell</option>
-            <option value="pixels">Pixels</option>
           </select>
         </label>
         <label class="panel-toggle dialog-inline-toggle">
@@ -365,12 +358,12 @@
       </div>
     </dialog>
 
-    <dialog id="initiative-roll-dialog" class="pixels-roll-dialog">
-      <div class="pixels-roll-dialog-body">
+    <dialog id="initiative-roll-dialog" class="initiative-roll-dialog">
+      <div class="initiative-roll-dialog-body">
         <h3 id="initiative-roll-title">Initiative würfeln</h3>
         <p id="initiative-roll-status">Warte auf Würfe…</p>
-        <div id="initiative-roll-list" class="pixels-roll-list" aria-live="polite"></div>
-        <div class="actions pixels-roll-dialog-actions">
+        <div id="initiative-roll-list" class="initiative-roll-list" aria-live="polite"></div>
+        <div class="actions initiative-roll-dialog-actions">
           <button id="initiative-roll-close" class="ghost" type="button">Schließen</button>
         </div>
       </div>
@@ -385,67 +378,6 @@
           <button id="warning-dialog-confirm" type="button">Bestätigen</button>
         </div>
       </div>
-    </dialog>
-
-    <dialog id="pixels-settings-dialog" class="pixels-settings-dialog">
-      <form method="dialog" class="pixels-settings-form">
-        <div class="pixels-settings-header">
-          <h3>Pixels Einstellungen</h3>
-          <button id="pixels-settings-close" class="ghost" type="button" title="Schließen">x</button>
-        </div>
-
-        <details class="panel collapsible pixels-settings-section">
-          <summary class="collapse-head">BLE-Geräte suchen</summary>
-          <div class="collapse-body">
-            <div class="actions">
-              <button id="bluetooth-scan" type="button">BLE-Geräte suchen</button>
-            </div>
-            <p class="hint">Hier nur suchen und merken. Verbinden, identifizieren und testen erfolgt bei den gemerkten Pixels.</p>
-            <ul id="bluetooth-devices" class="list"></ul>
-          </div>
-        </details>
-
-        <details class="panel collapsible pixels-settings-section">
-          <summary class="collapse-head">Gemerkte Pixels</summary>
-          <div class="collapse-body">
-            <div class="actions">
-              <button id="pixels-refresh" type="button">Gemerkte Pixels aktualisieren</button>
-            </div>
-            <p class="hint">Der Server merkt sich Name und MAC-Adresse und zeigt hier nur die gemerkten Würfel.</p>
-            <ul id="pixels-devices" class="list"></ul>
-          </div>
-        </details>
-
-        <details class="panel collapsible pixels-settings-section">
-          <summary class="collapse-head">Zuordnungen</summary>
-          <div class="collapse-body">
-            <label>
-              Pixels-Modus
-              <select id="pixels-mode-select">
-                <option value="pc-set-3">Eigene 3er-Sets</option>
-                <option value="shared-set-3">Gemeinsames 3er-Set</option>
-                <option value="pc-single-3x">Ein Pixel, drei Würfe</option>
-              </select>
-            </label>
-            <p id="pixels-mode-help" class="hint"></p>
-            <div id="pixels-character-assignments" class="stack"></div>
-          </div>
-        </details>
-
-        <details class="panel collapsible pixels-settings-section">
-          <summary class="collapse-head">Pixels-Live</summary>
-          <div class="collapse-body">
-            <div class="panel-head panel-head-right">
-              <div class="actions">
-                <button id="clear-pixels-events" class="ghost" type="button">Alte Events löschen</button>
-              </div>
-            </div>
-            <p class="hint">Serverseitig empfangene RollState-Ereignisse der überwachten Würfel.</p>
-            <ul id="pixels-monitor" class="list"></ul>
-            <ul id="pixels-events" class="list"></ul>
-          </div>
-        </details>
-      </form>
     </dialog>
 
     <script type="module" src="./app.js"></script>

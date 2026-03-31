@@ -6,10 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { computeCritical, createCharacter } from "@fatevi/rules";
+import { createCharacter } from "@fatevi/rules";
 import { TrackerServer } from "./dist/server.js";
-import { connectBluetoothDevice, disconnectBluetoothDevice, listBluetoothDevices, scanBluetoothDevices } from "./bluetooth.js";
-import { blinkPixelsDevice, createPixelsMonitorManager, forgetPixelsGatt, identifyPixelsDevice, listPixelsDevices } from "./pixels.js";
 
 const GM_PASSWORD = process.env.FATEVI_GM_PASSWORD ?? "gm";
 const DEFAULT_GM_NAME = process.env.FATEVI_GM_NAME ?? "Spielleiter";
@@ -18,22 +16,10 @@ const HOST = process.env.HOST || "127.0.0.1";
 const DEFAULT_GM_PASSWORD = "gm";
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
 const serverState = new TrackerServer();
 const sessions = new Map();
 const eventStreams = new Map();
-const bluetoothOperations = new Map();
-const pixelsAssignments = new Map();
-const selectedPixelsDevices = new Map();
-const pendingPixelRolls = new Map();
-const pendingGroupSheetRoll = {
-  status: "idle",
-  source: null,
-  assignedDice: [],
-  results: [],
-  acceptedAtByAddress: new Map(),
-  createdAt: null
-};
-const armedPixelsRolls = new Map();
 const gmAccounts = new Map();
 const gmLibraries = new Map();
 const currentFile = fileURLToPath(import.meta.url);
@@ -43,41 +29,6 @@ const dataDir = path.resolve(currentDir, "data");
 const runtimeFile = path.join(dataDir, "runtime.json");
 const librariesDir = path.join(dataDir, "libraries");
 const execFileAsync = promisify(execFile);
-const PIXELS_SLOT_VALUES = [1, 2, 3];
-const PIXELS_ROLL_DEBOUNCE_MS = 1200;
-const PIXELS_ROLL_ARM_WINDOW_MS = 4000;
-const PIXELS_MODE = {
-  PC_SET_3: "pc-set-3",
-  SHARED_SET_3: "shared-set-3",
-  PC_SINGLE_3X: "pc-single-3x"
-};
-const pixelsConfig = {
-  mode: PIXELS_MODE.PC_SET_3,
-  sharedSet: [null, null, null],
-  gmSet: [null, null, null]
-};
-const pixelsMonitor = createPixelsMonitorManager({
-  onEvent: (event) => {
-    broadcastPixelsEvent("pixels-roll", event);
-    queuePixelsRollIntegration(event);
-  },
-  onStatus: (payload) => {
-    broadcastPixelsEvent("pixels-status", payload);
-  }
-});
-let pixelsRollIntegrationQueue = Promise.resolve();
-
-function queuePixelsRollIntegration(event) {
-  pixelsRollIntegrationQueue = pixelsRollIntegrationQueue
-    .then(() => handlePixelsRollIntegration(event))
-    .catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      broadcastPixelsEvent("pixels-roll-integration-error", {
-        address: event.address,
-        error: message
-      });
-    });
-}
 
 function createHttpError(statusCode, message) {
   const error = new Error(message);
@@ -152,10 +103,7 @@ async function saveRuntime() {
       salt: account.salt,
       passwordHash: account.passwordHash,
       createdAt: account.createdAt
-    })),
-    pixelsAssignments: getAssignmentsPayload(),
-    selectedPixelsDevices: getSelectedPixelsPayload(),
-    pixelsConfig: getPixelsConfigPayload()
+    }))
   };
   await writeFile(runtimeFile, JSON.stringify(payload, null, 2), "utf8");
 }
@@ -217,30 +165,6 @@ async function loadRuntime() {
         }
       }
     }
-    pixelsAssignments.clear();
-    for (const entry of payload?.pixelsAssignments || []) {
-      if (!entry?.address || typeof entry.characterId !== "string") {
-        continue;
-      }
-      const normalizedSlot = normalizeAssignmentSlot(entry.slot);
-      pixelsAssignments.set(entry.address, {
-        characterId: entry.characterId,
-        slot: normalizedSlot ?? findFirstFreeSlot(entry.characterId) ?? 1
-      });
-    }
-    selectedPixelsDevices.clear();
-    for (const entry of payload?.selectedPixelsDevices || []) {
-      if (!entry?.address) {
-        continue;
-      }
-      selectedPixelsDevices.set(entry.address, {
-        address: entry.address,
-        name: entry.name || entry.address
-      });
-    }
-    pixelsConfig.mode = normalizePixelsMode(payload?.pixelsConfig?.mode);
-    pixelsConfig.sharedSet = normalizeSharedSet(payload?.pixelsConfig?.sharedSet);
-    pixelsConfig.gmSet = normalizeSharedSet(payload?.pixelsConfig?.gmSet);
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
       return;
@@ -515,43 +439,6 @@ function getLibraryPayload(accountId) {
   };
 }
 
-function createPixelsSnapshotState() {
-  return {
-    selectedDevices: getSelectedPixelsPayload(),
-    assignments: getAssignmentsPayload(),
-    config: getPixelsConfigPayload()
-  };
-}
-
-function applyPixelsSnapshotState(snapshotPixelsState) {
-  selectedPixelsDevices.clear();
-  for (const entry of snapshotPixelsState?.selectedDevices || []) {
-    if (!entry?.address) {
-      continue;
-    }
-    selectedPixelsDevices.set(entry.address, {
-      address: entry.address,
-      name: entry.name || entry.address
-    });
-  }
-
-  pixelsAssignments.clear();
-  for (const entry of snapshotPixelsState?.assignments || []) {
-    if (!entry?.address || typeof entry.characterId !== "string") {
-      continue;
-    }
-    const normalizedSlot = normalizeAssignmentSlot(entry.slot);
-    pixelsAssignments.set(entry.address, {
-      characterId: entry.characterId,
-      slot: normalizedSlot ?? findFirstFreeSlot(entry.characterId) ?? 1
-    });
-  }
-
-  pixelsConfig.mode = normalizePixelsMode(snapshotPixelsState?.config?.mode);
-  pixelsConfig.sharedSet = normalizeSharedSet(snapshotPixelsState?.config?.sharedSet);
-  pixelsConfig.gmSet = normalizeSharedSet(snapshotPixelsState?.config?.gmSet);
-}
-
 function createCharacterId(name, type) {
   const base = String(name || "charakter")
     .toLowerCase()
@@ -629,289 +516,15 @@ function getGmSession() {
   };
 }
 
-function normalizePixelsMode(value) {
-  if (value === PIXELS_MODE.SHARED_SET_3 || value === PIXELS_MODE.PC_SINGLE_3X || value === PIXELS_MODE.PC_SET_3) {
-    return value;
-  }
-  return PIXELS_MODE.PC_SET_3;
-}
-
-function normalizeSharedSet(value) {
-  return Array.from({ length: 3 }, (_, index) => {
-    const entry = Array.isArray(value) ? value[index] : null;
-    return typeof entry === "string" && entry ? entry : null;
-  });
-}
-
-function resetPendingGroupSheetRoll() {
-  pendingGroupSheetRoll.status = "idle";
-  pendingGroupSheetRoll.source = null;
-  pendingGroupSheetRoll.assignedDice = [];
-  pendingGroupSheetRoll.results = [];
-  pendingGroupSheetRoll.acceptedAtByAddress = new Map();
-  pendingGroupSheetRoll.createdAt = null;
-}
-
-function getPendingGroupSheetRollPayload() {
-  return {
-    status: pendingGroupSheetRoll.status,
-    source: pendingGroupSheetRoll.source,
-    assignedDice: Array.isArray(pendingGroupSheetRoll.assignedDice) ? pendingGroupSheetRoll.assignedDice : [],
-    collected: Array.isArray(pendingGroupSheetRoll.results)
-      ? pendingGroupSheetRoll.results.map((entry, index) => ({
-          address: entry.address,
-          slot: entry.slot,
-          label: entry.slot ? `W${entry.slot}` : `W${index + 1}`,
-          value: entry.value
-        }))
-      : [],
-    createdAt: pendingGroupSheetRoll.createdAt
-  };
-}
-
-function getPixelsConfigPayload() {
-  return {
-    mode: normalizePixelsMode(pixelsConfig.mode),
-    sharedSet: normalizeSharedSet(pixelsConfig.sharedSet),
-    gmSet: normalizeSharedSet(pixelsConfig.gmSet)
-  };
-}
-
-function normalizeAssignmentSlot(value) {
-  const slot = Math.round(Number(value));
-  return PIXELS_SLOT_VALUES.includes(slot) ? slot : null;
-}
-
-function findFirstFreeSlot(characterId, excludingAddress = null) {
-  for (const slot of PIXELS_SLOT_VALUES) {
-    const inUse = Array.from(pixelsAssignments.entries()).some(([address, assignment]) => {
-      if (excludingAddress && address === excludingAddress) {
-        return false;
-      }
-      return assignment.characterId === characterId && assignment.slot === slot;
-    });
-    if (!inUse) {
-      return slot;
-    }
-  }
-  return null;
-}
-
-function getAssignedCharacterEntry(address) {
-  return pixelsAssignments.get(address) ?? null;
-}
-
-function getSharedSlotForAddress(address) {
-  const sharedSet = normalizeSharedSet(pixelsConfig.sharedSet);
-  const index = sharedSet.findIndex((entry) => entry === address);
-  if (index < 0) {
-    return null;
-  }
-  return index + 1;
-}
-
-function getGmSetSlotForAddress(address) {
-  const gmSet = normalizeSharedSet(pixelsConfig.gmSet);
-  const index = gmSet.findIndex((entry) => entry === address);
-  if (index < 0) {
-    return null;
-  }
-  return index + 1;
-}
-
-function getConfiguredGroupSheetDice() {
-  const gmSet = normalizeSharedSet(pixelsConfig.gmSet)
-    .map((address, index) => ({
-      address,
-      slot: index + 1,
-      label: `W${index + 1}`
-    }))
-    .filter((entry) => Boolean(entry.address));
-  if (gmSet.length === 3) {
-    return { source: "gm-set", assignedDice: gmSet };
-  }
-
-  const sharedSet = normalizeSharedSet(pixelsConfig.sharedSet)
-    .map((address, index) => ({
-      address,
-      slot: index + 1,
-      label: `W${index + 1}`
-    }))
-    .filter((entry) => Boolean(entry.address));
-  if (!pendingPixelRolls.size && sharedSet.length === 3) {
-    return { source: "shared-set", assignedDice: sharedSet };
-  }
-
-  return { source: null, assignedDice: [] };
-}
-
-async function ensureGroupSheetPixelsWatches() {
-  const { assignedDice } = getConfiguredGroupSheetDice();
-  for (const die of assignedDice) {
-    try {
-      await pixelsMonitor.watchDevice(die.address);
-    } catch {
-      // keep server resilient; watch failures are surfaced through monitor status
-    }
-  }
-}
-
-function getAssignmentsPayload() {
-  return Array.from(pixelsAssignments.entries())
-    .map(([address, assignment]) => ({
-      address,
-      characterId: assignment.characterId,
-      slot: assignment.slot
-    }))
-    .sort(
-      (left, right) =>
-        left.characterId.localeCompare(right.characterId) ||
-        left.slot - right.slot ||
-        left.address.localeCompare(right.address)
-    );
-}
-
-function getSelectedPixelsPayload() {
-  return Array.from(selectedPixelsDevices.values()).sort(
-    (left, right) => (left.name || left.address).localeCompare(right.name || right.address)
-  );
-}
-
-function deviceNameForAddress(address) {
-  return selectedPixelsDevices.get(address)?.name || bluetoothOperations.get(address)?.name || address;
-}
-
-function normalizeBluetoothDeviceName(name) {
-  return String(name || "").trim().toLowerCase();
-}
-
-function extractPixelsSeriesSuffix(name) {
-  const match = /^w\d+[a-z]?(\d+)$/i.exec(String(name || "").trim());
-  return match ? match[1] : null;
-}
-
-async function findVisibleBluetoothDeviceByName(name, seconds = 8) {
-  const normalizedName = normalizeBluetoothDeviceName(name);
-  if (!normalizedName) {
-    return null;
-  }
-  const devices = await scanBluetoothDevices(seconds);
-  const directMatch =
-    devices.find((device) => normalizeBluetoothDeviceName(device.name) === normalizedName) ||
-    devices.find((device) => normalizeBluetoothDeviceName(device.alias) === normalizedName) ||
-    null;
-  if (directMatch) {
-    return directMatch;
-  }
-
-  const requestedSuffix = extractPixelsSeriesSuffix(name);
-  if (requestedSuffix) {
-    const suffixMatches = devices.filter((device) => {
-      const candidateName = device.name || device.alias || "";
-      return normalizeBluetoothDeviceName(candidateName).startsWith("w") && extractPixelsSeriesSuffix(candidateName) === requestedSuffix;
-    });
-    if (suffixMatches.length === 1) {
-      return suffixMatches[0];
-    }
-  }
-
-  return null;
-}
-
-async function rebindSelectedPixelsDevice(oldAddress, nextDevice) {
-  if (!oldAddress || !nextDevice?.address || oldAddress === nextDevice.address) {
-    return false;
-  }
-
-  const previousSelection = selectedPixelsDevices.get(oldAddress);
-  if (!previousSelection) {
-    return false;
-  }
-
-  selectedPixelsDevices.delete(oldAddress);
-  selectedPixelsDevices.set(nextDevice.address, {
-    address: nextDevice.address,
-    name: nextDevice.name || previousSelection.name || nextDevice.address
-  });
-
-  const previousAssignment = pixelsAssignments.get(oldAddress);
-  if (previousAssignment) {
-    pixelsAssignments.delete(oldAddress);
-    pixelsAssignments.set(nextDevice.address, previousAssignment);
-  }
-
-  pixelsConfig.sharedSet = normalizeSharedSet(pixelsConfig.sharedSet).map((address) =>
-    address === oldAddress ? nextDevice.address : address
-  );
-  pixelsConfig.gmSet = normalizeSharedSet(pixelsConfig.gmSet).map((address) =>
-    address === oldAddress ? nextDevice.address : address
-  );
-
-  pixelsMonitor.unwatchDevice(oldAddress);
-  forgetPixelsGatt(oldAddress);
-  rebuildPendingPixelRolls();
-  await saveRuntime();
-  broadcastPixelsEvent("pixels-selection", {
-    reason: "pixels-device-rebound",
-    selectedDevices: getSelectedPixelsPayload()
-  });
-  broadcastPixelsEvent("pixels-assignments", {
-    reason: "pixels-device-rebound",
-    assignments: getAssignmentsPayload()
-  });
-  broadcastPixelsEvent("pixels-config", {
-    reason: "pixels-device-rebound",
-    config: getPixelsConfigPayload()
-  });
-  return true;
-}
-
-async function tryPixelsGattFallback(address, name = null) {
-  const devices = await listPixelsDevices([{ address, name: name || address }]);
-  const device = devices.find((entry) => entry.address === address) || null;
-  if (!device) {
-    return null;
-  }
-  if (device.gattReady || device.writeCharacteristicPath || device.notifyCharacteristicPath || device.effectiveConnected) {
-    return device;
-  }
-  return null;
-}
-
-function getAssignedDiceAssignments(characterId) {
-  return Array.from(pixelsAssignments.entries())
-    .filter(([, assignment]) => assignment.characterId === characterId)
-    .map(([address, assignment]) => ({
-      address,
-      characterId: assignment.characterId,
-      slot: assignment.slot
-    }))
-    .sort((left, right) => left.slot - right.slot || left.address.localeCompare(right.address));
-}
-
-function getAssignedDiceAddresses(characterId) {
-  return getAssignedDiceAssignments(characterId).map((entry) => entry.address);
-}
-
-function getAssignedDiceCount(characterId) {
-  return getAssignedDiceAssignments(characterId).length;
-}
-
 function getCharacterById(characterId) {
   return serverState.getState().characters.find((entry) => entry.id === characterId) ?? null;
-}
-
-function getPixelsCharactersInRosterOrder() {
-  return serverState
-    .getState()
-    .characters.filter((character) => !character.incapacitated && getInitiativeRollMode(character) === "pixels");
 }
 
 function getInitiativeRollMode(character) {
   if (!character) {
     return "manual";
   }
-  if (character.initiativeRollMode === "automatic" || character.initiativeRollMode === "manual" || character.initiativeRollMode === "pixels") {
+  if (character.initiativeRollMode === "automatic" || character.initiativeRollMode === "manual") {
     return character.initiativeRollMode;
   }
   return character.type === "NPC" ? "automatic" : "manual";
@@ -923,183 +536,6 @@ function rollD6() {
 
 function roll3d6() {
   return rollD6() + rollD6() + rollD6();
-}
-
-async function triggerPixelsBlinkForAddresses(addresses, options) {
-  const uniqueAddresses = [...new Set(addresses.filter(Boolean))];
-  await Promise.all(
-    uniqueAddresses.map((address) =>
-      blinkPixelsDevice(address, options).catch((error) => {
-        broadcastPixelsEvent("pixels-led-error", {
-          address,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      })
-    )
-  );
-}
-
-async function triggerPixelsBlinkSequenceForAddresses(addresses, steps = []) {
-  for (const step of steps) {
-    await triggerPixelsBlinkForAddresses(addresses, step.options || {});
-    if (step.pauseMs) {
-      await new Promise((resolve) => setTimeout(resolve, step.pauseMs));
-    }
-  }
-}
-
-async function triggerWaitLedEffectsForPendingRolls() {
-  const targets = Array.from(pendingPixelRolls.values()).flatMap((entry) => entry.assignedAddresses || []);
-  if (!targets.length) {
-    return;
-  }
-  await triggerPixelsBlinkForAddresses(targets, {
-    color: "#ffffff",
-    count: 2,
-    duration: 700,
-    loopCount: 3
-  });
-}
-
-async function startPixelsWatchesForPendingRolls() {
-  const addresses = [
-    ...new Set(Array.from(pendingPixelRolls.values()).flatMap((entry) => entry.assignedAddresses || []).filter(Boolean))
-  ];
-  for (const address of addresses) {
-    try {
-      await pixelsMonitor.watchDevice(address);
-    } catch (error) {
-      broadcastPixelsEvent("pixels-watch-auto-error", {
-        address,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
-  }
-}
-
-async function ensureAutomaticPixelsWatches() {
-  const addresses = [...new Set(getSelectedPixelsPayload().map((entry) => entry.address).filter(Boolean))];
-  for (const address of addresses) {
-    try {
-      await pixelsMonitor.watchDevice(address);
-    } catch (error) {
-      broadcastPixelsEvent("pixels-watch-auto-error", {
-        address,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
-  }
-}
-
-async function triggerCriticalLedEffect(characterId, total) {
-  const critical = computeCritical(total);
-  if (!critical) {
-    return;
-  }
-  const addresses = getAssignedDiceAddresses(characterId);
-  if (!addresses.length) {
-    return;
-  }
-  if (critical === "success") {
-    await triggerPixelsBlinkForAddresses(addresses, {
-      color: "#00ff00",
-      count: 2,
-      duration: 500,
-      loopCount: 1
-    });
-    return;
-  }
-  await triggerPixelsBlinkSequenceForAddresses(addresses, [
-    {
-      options: {
-        color: "#ff0000",
-        count: 1,
-        duration: 160,
-        loopCount: 1
-      },
-      pauseMs: 90
-    },
-    {
-      options: {
-        color: "#ff7a00",
-        count: 1,
-        duration: 160,
-        loopCount: 1
-      },
-      pauseMs: 90
-    },
-    {
-      options: {
-        color: "#ff0000",
-        count: 1,
-        duration: 160,
-        loopCount: 1
-      },
-      pauseMs: 90
-    },
-    {
-      options: {
-        color: "#ff7a00",
-        count: 1,
-        duration: 160,
-        loopCount: 1
-      }
-    }
-  ]);
-}
-
-function rebuildPendingPixelRolls() {
-  const previousRolls = new Map(pendingPixelRolls.entries());
-  pendingPixelRolls.clear();
-  const state = serverState.getState();
-  for (const input of state.pendingInputs) {
-    if (input.type !== "roll" || input.request.kind !== "initiative-roll") {
-      continue;
-    }
-    const character = getCharacterById(input.request.characterId);
-    if (getInitiativeRollMode(character) !== "pixels") {
-      continue;
-    }
-    const mode = normalizePixelsMode(pixelsConfig.mode);
-    const previous = previousRolls.get(input.request.characterId);
-    let assignedDice = [];
-    if (mode === PIXELS_MODE.SHARED_SET_3) {
-      assignedDice = normalizeSharedSet(pixelsConfig.sharedSet)
-        .map((address, index) => ({
-          address,
-          slot: index + 1,
-          label: `W${index + 1}`
-        }))
-        .filter((entry) => Boolean(entry.address));
-    } else if (mode === PIXELS_MODE.PC_SINGLE_3X) {
-      const firstAssigned = getAssignedDiceAssignments(input.request.characterId)[0] ?? null;
-      assignedDice = firstAssigned
-        ? Array.from({ length: 3 }, (_, index) => ({
-            address: firstAssigned.address,
-            slot: index + 1,
-            label: `W${index + 1}`
-          }))
-        : [];
-    } else {
-      assignedDice = getAssignedDiceAssignments(input.request.characterId).map((entry) => ({
-        ...entry,
-        label: `W${entry.slot}`
-      }));
-    }
-    pendingPixelRolls.set(input.request.characterId, {
-      characterId: input.request.characterId,
-      mode,
-      phase: previous?.phase === "crit" ? "crit" : "main",
-      requiredDice: previous?.phase === "crit" ? 1 : input.request.dice === "3d6" ? 3 : 1,
-      assignedDice,
-      assignedAddresses: [...new Set(assignedDice.map((entry) => entry.address).filter(Boolean))],
-      results: Array.isArray(previous?.results) ? previous.results.slice() : [],
-      mainTotal: Number.isFinite(Number(previous?.mainTotal)) ? Number(previous.mainTotal) : null,
-      mainFaces: Array.isArray(previous?.mainFaces) ? previous.mainFaces.slice() : [],
-      acceptedAtByAddress: previous?.acceptedAtByAddress instanceof Map ? previous.acceptedAtByAddress : new Map(),
-      createdAt: previous?.createdAt || new Date().toISOString()
-    });
-  }
 }
 
 function resolveAutomaticInitiativeRolls() {
@@ -1210,92 +646,6 @@ function broadcastStateUpdate(reason = "state-updated") {
       view: serverState.getStateForSession(session)
     });
   }
-}
-
-function broadcastPixelsEvent(eventName, payload) {
-  for (const [token, response] of eventStreams.entries()) {
-    const record = getSessionRecord(token, { touch: false });
-    if (!record) {
-      closeSessionStream(token);
-      continue;
-    }
-    const session = record.session;
-    if (session.role !== "gm") {
-      continue;
-    }
-    sendSseEvent(response, eventName, payload);
-  }
-}
-
-function getBluetoothOperationsPayload() {
-  return {
-    operations: Array.from(bluetoothOperations.values()).sort((left, right) =>
-      String(left.name || left.address).localeCompare(String(right.name || right.address), "de")
-    )
-  };
-}
-
-function broadcastBluetoothOperations(reason, extra = {}) {
-  broadcastPixelsEvent("bluetooth-operation", {
-    reason,
-    ...getBluetoothOperationsPayload(),
-    ...extra
-  });
-}
-
-function updateBluetoothOperation(address, patch = {}) {
-  const current = bluetoothOperations.get(address) || {
-    address,
-    name: patch.name || address,
-    kind: "connect",
-    status: "idle",
-    stage: "idle",
-    message: "",
-    startedAt: null,
-    updatedAt: new Date().toISOString()
-  };
-  const next = {
-    ...current,
-    ...patch,
-    address,
-    name: patch.name || current.name || address,
-    updatedAt: new Date().toISOString()
-  };
-  bluetoothOperations.set(address, next);
-  broadcastBluetoothOperations("operation-updated", { address, operation: next });
-  return next;
-}
-
-function clearBluetoothOperation(address, reason = "operation-cleared") {
-  if (!bluetoothOperations.has(address)) {
-    return;
-  }
-  bluetoothOperations.delete(address);
-  broadcastBluetoothOperations(reason, { address });
-}
-
-async function persistPixelsConfigAndBroadcast(reason = "pixels-config-updated") {
-  await saveRuntime();
-  broadcastPixelsEvent("pixels-config", {
-    reason,
-    config: getPixelsConfigPayload()
-  });
-}
-
-async function persistPixelsAssignmentsAndBroadcast(reason = "pixels-assignments-updated") {
-  await saveRuntime();
-  broadcastPixelsEvent("pixels-assignments", {
-    reason,
-    assignments: getAssignmentsPayload()
-  });
-}
-
-async function persistSelectedPixelsAndBroadcast(reason = "pixels-selection-updated") {
-  await saveRuntime();
-  broadcastPixelsEvent("pixels-selection", {
-    reason,
-    selectedDevices: getSelectedPixelsPayload()
-  });
 }
 
 function getBootstrap() {
@@ -1501,7 +851,6 @@ async function handleSnapshotSave(request, response) {
   const state = serverState.getState();
   if (existing) {
     existing.state = state;
-    existing.pixelsState = createPixelsSnapshotState();
     existing.updatedAt = now;
   } else {
     library.snapshots = [
@@ -1509,7 +858,6 @@ async function handleSnapshotSave(request, response) {
         id: `snap-${randomUUID()}`,
         name,
         state,
-        pixelsState: createPixelsSnapshotState(),
         createdAt: now,
         updatedAt: now
       },
@@ -1533,29 +881,12 @@ async function handleSnapshotLoad(request, response) {
     return;
   }
   serverState.setState(snapshot.state);
-  applyPixelsSnapshotState(snapshot.pixelsState);
-  rebuildPendingPixelRolls();
   await saveRuntime();
   broadcastStateUpdate("snapshot-loaded");
-  broadcastPixelsEvent("pixels-selection", {
-    reason: "snapshot-loaded",
-    selectedDevices: getSelectedPixelsPayload()
-  });
-  broadcastPixelsEvent("pixels-assignments", {
-    reason: "snapshot-loaded",
-    assignments: getAssignmentsPayload()
-  });
-  broadcastPixelsEvent("pixels-config", {
-    reason: "snapshot-loaded",
-    config: getPixelsConfigPayload()
-  });
   sendJson(response, 200, {
     library: getLibraryPayload(session.userId),
     session,
-    view: serverState.getStateForSession(session),
-    selectedDevices: getSelectedPixelsPayload(),
-    assignments: getAssignmentsPayload(),
-    config: getPixelsConfigPayload()
+    view: serverState.getStateForSession(session)
   });
 }
 
@@ -1679,7 +1010,6 @@ async function handleStateRestore(request, response) {
     return;
   }
   serverState.setState(body.state);
-  rebuildPendingPixelRolls();
   await saveRuntime();
   broadcastStateUpdate(body.reason || "state-restored");
   sendJson(response, 200, { session, view: serverState.getStateForSession(session) });
@@ -1691,17 +1021,11 @@ async function handleAppReset(request, response) {
     return;
   }
   serverState.resetState();
-  pendingPixelRolls.clear();
-  resetPendingGroupSheetRoll();
   await saveRuntime();
   broadcastStateUpdate("app-reset");
-  broadcastPixelsEvent("group-sheet-roll", getPendingGroupSheetRollPayload());
   sendJson(response, 200, {
     session,
-    view: serverState.getStateForSession(session),
-    selectedDevices: getSelectedPixelsPayload(),
-    assignments: getAssignmentsPayload(),
-    config: getPixelsConfigPayload()
+    view: serverState.getStateForSession(session)
   });
 }
 
@@ -1718,18 +1042,8 @@ async function handleCommand(request, response) {
     if (command.type === "start-round") {
       resolveAutomaticInitiativeRolls();
     }
-    rebuildPendingPixelRolls();
-    if (command.type === "start-round") {
-      await startPixelsWatchesForPendingRolls();
-    }
     await saveRuntime();
     broadcastStateUpdate(command.type);
-    if (command.type === "start-round") {
-      await triggerWaitLedEffectsForPendingRolls();
-    }
-    if (command.type === "resolve-initiative-roll") {
-      await triggerCriticalLedEffect(command.characterId, Number(command.total));
-    }
     sendJson(response, 200, { events: result.events, view: serverState.getStateForSession(session) });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1763,26 +1077,6 @@ async function handleEvents(request, response) {
     session,
     view: serverState.getStateForSession(session)
   });
-  if (session.role === "gm") {
-    sendSseEvent(response, "pixels-status", pixelsMonitor.getSnapshot());
-    sendSseEvent(response, "bluetooth-operation", {
-      reason: "initial-sync",
-      ...getBluetoothOperationsPayload()
-    });
-    sendSseEvent(response, "pixels-config", {
-      reason: "initial-sync",
-      config: getPixelsConfigPayload()
-    });
-    sendSseEvent(response, "pixels-assignments", {
-      reason: "initial-sync",
-      assignments: getAssignmentsPayload()
-    });
-    sendSseEvent(response, "pixels-selection", {
-      reason: "initial-sync",
-      selectedDevices: getSelectedPixelsPayload()
-    });
-    sendSseEvent(response, "group-sheet-roll", getPendingGroupSheetRollPayload());
-  }
 
   const keepAliveId = setInterval(() => {
     response.write(": keepalive\n\n");
@@ -1792,752 +1086,6 @@ async function handleEvents(request, response) {
     clearInterval(keepAliveId);
     eventStreams.delete(token);
   });
-}
-
-async function handleBluetoothDevices(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const devices = await listBluetoothDevices();
-  sendJson(response, 200, { devices });
-}
-
-async function handleBluetoothScan(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const body = await readJsonBody(request);
-  updateBluetoothOperation("__scan__", {
-    address: "__scan__",
-    name: "Bluetooth-Scan",
-    kind: "scan",
-    status: "running",
-    stage: "scan",
-    message: "Bluetooth-Scan läuft.",
-    startedAt: new Date().toISOString()
-  });
-  try {
-    const devices = await scanBluetoothDevices(body.seconds);
-    updateBluetoothOperation("__scan__", {
-      status: "completed",
-      stage: "ready",
-      message: `${devices.length} Geräte geladen.`
-    });
-    sendJson(response, 200, { devices });
-  } catch (error) {
-    updateBluetoothOperation("__scan__", {
-      status: "failed",
-      stage: "scan",
-      message: error instanceof Error ? error.message : String(error)
-    });
-    sendError(response, 400, error instanceof Error ? error.message : String(error));
-  } finally {
-    setTimeout(() => clearBluetoothOperation("__scan__", "scan-finished"), 4000);
-  }
-}
-
-async function handleBluetoothConnect(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const body = await readJsonBody(request);
-  if (!body.address) {
-    sendError(response, 400, "missing device address");
-    return;
-  }
-  const operationStart = new Date().toISOString();
-  updateBluetoothOperation(body.address, {
-    name: body.name || body.address,
-    kind: "connect",
-    status: "running",
-    stage: "inspect",
-    message: "Verbindung wird vorbereitet.",
-    startedAt: operationStart
-  });
-  try {
-    const device = await connectBluetoothDevice(body.address, {
-      allowPairingFallback: false,
-      onProgress: (progress) => {
-        updateBluetoothOperation(body.address, {
-          name: deviceNameForAddress(body.address) || body.name || body.address,
-          kind: "connect",
-          status: progress.status === "failed" ? "failed" : "running",
-          stage: progress.stage,
-          message: progress.message || "",
-          startedAt: operationStart
-        });
-      }
-    });
-    updateBluetoothOperation(body.address, {
-      name: device.name || body.name || body.address,
-      kind: "connect",
-      status: "completed",
-      stage: "ready",
-      message: "Gerät ist verbunden."
-    });
-    await ensureAutomaticPixelsWatches();
-    sendJson(response, 200, { device });
-    setTimeout(() => clearBluetoothOperation(body.address, "connect-finished"), 5000);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (
-      [
-        "Bluetooth-Verbindung hat nicht rechtzeitig geantwortet. Würfel aktivieren und direkt erneut verbinden.",
-        "Bluetooth-Verbindung wurde vom Würfel abgelehnt oder ist abgelaufen. Würfel aktivieren und direkt erneut verbinden.",
-        "direct connect did not establish a stable bluez link"
-      ].includes(message)
-    ) {
-      const fallbackDevice = await tryPixelsGattFallback(body.address, body.name);
-      if (fallbackDevice) {
-        updateBluetoothOperation(body.address, {
-          name: fallbackDevice.name || body.name || body.address,
-          kind: "connect",
-          status: "completed",
-          stage: "ready",
-          message: "Gerät ohne klassisches Pairing über GATT erreichbar."
-        });
-        await ensureAutomaticPixelsWatches();
-        sendJson(response, 200, { device: fallbackDevice, degradedPairing: true });
-        setTimeout(() => clearBluetoothOperation(body.address, "connect-finished"), 5000);
-        return;
-      }
-    }
-    if (
-      body.name &&
-      [
-        "device is not currently visible over BLE",
-        "device is not currently advertising over BLE",
-        "direct connect did not establish a stable bluez link"
-      ].includes(message)
-    ) {
-      updateBluetoothOperation(body.address, {
-        kind: "connect",
-        status: "running",
-        stage: "scan",
-        message: `Gemerkter Würfel nicht sichtbar. Suche ${body.name} neu.`
-      });
-      let reboundDevice = null;
-      try {
-        reboundDevice = await findVisibleBluetoothDeviceByName(body.name, 8);
-        if (!reboundDevice) {
-          throw new Error(`Kein sichtbarer BLE-Würfel mit Name ${body.name} gefunden`);
-        }
-        await rebindSelectedPixelsDevice(body.address, reboundDevice);
-        clearBluetoothOperation(body.address, "connect-rebound");
-        updateBluetoothOperation(reboundDevice.address, {
-          name: reboundDevice.name || body.name,
-          kind: "connect",
-          status: "running",
-          stage: "inspect",
-          message: `Würfel unter neuer Adresse gefunden: ${reboundDevice.address}`
-        });
-        const device = await connectBluetoothDevice(reboundDevice.address, {
-          allowPairingFallback: false,
-          onProgress: (progress) => {
-            updateBluetoothOperation(reboundDevice.address, {
-              name: reboundDevice.name || body.name || reboundDevice.address,
-              kind: "connect",
-              status: progress.status === "failed" ? "failed" : "running",
-              stage: progress.stage,
-              message: progress.message || "",
-              startedAt: operationStart
-            });
-          }
-        });
-        updateBluetoothOperation(reboundDevice.address, {
-          name: device.name || reboundDevice.name || body.name || reboundDevice.address,
-          kind: "connect",
-          status: "completed",
-          stage: "ready",
-          message: "Gerät ist verbunden."
-        });
-        await ensureAutomaticPixelsWatches();
-        sendJson(response, 200, { device, reboundFromAddress: body.address });
-        setTimeout(() => clearBluetoothOperation(reboundDevice.address, "connect-finished"), 5000);
-        return;
-      } catch (rebindError) {
-        const rebindMessage = rebindError instanceof Error ? rebindError.message : String(rebindError);
-        if (
-          [
-            "Bluetooth-Verbindung hat nicht rechtzeitig geantwortet. Würfel aktivieren und direkt erneut verbinden.",
-            "Bluetooth-Verbindung wurde vom Würfel abgelehnt oder ist abgelaufen. Würfel aktivieren und direkt erneut verbinden.",
-            "direct connect did not establish a stable bluez link"
-          ].includes(rebindMessage)
-        ) {
-          const fallbackDevice = reboundDevice
-            ? await tryPixelsGattFallback(reboundDevice.address, reboundDevice.name || body.name)
-            : null;
-          if (fallbackDevice) {
-            updateBluetoothOperation(reboundDevice.address, {
-              name: fallbackDevice.name || reboundDevice.name || body.name || reboundDevice.address,
-              kind: "connect",
-              status: "completed",
-              stage: "ready",
-              message: "Gerät ohne klassisches Pairing über GATT erreichbar."
-            });
-            await ensureAutomaticPixelsWatches();
-            sendJson(response, 200, {
-              device: fallbackDevice,
-              reboundFromAddress: body.address,
-              degradedPairing: true
-            });
-            setTimeout(() => clearBluetoothOperation(reboundDevice.address, "connect-finished"), 5000);
-            return;
-          }
-        }
-        if (rebindMessage === "direct connect did not establish a stable bluez link") {
-          updateBluetoothOperation(body.address, {
-            kind: "connect",
-            status: "failed",
-            stage: "connect",
-            message: "Würfel reagiert, aber BlueZ liefert noch keinen nutzbaren Link. Erneut aufwecken und erneut verbinden."
-          });
-          sendError(response, 400, "Würfel reagiert, aber BlueZ liefert noch keinen nutzbaren Link. Erneut aufwecken und erneut verbinden.");
-          return;
-        }
-        updateBluetoothOperation(body.address, {
-          kind: "connect",
-          status: "failed",
-          stage: "scan",
-          message: rebindMessage
-        });
-        sendError(response, 400, rebindMessage);
-        return;
-      }
-    }
-    updateBluetoothOperation(body.address, {
-      kind: "connect",
-      status: "failed",
-      stage: "connect",
-      message
-    });
-    sendError(response, 400, message);
-  }
-}
-
-async function handleBluetoothDisconnect(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const body = await readJsonBody(request);
-  if (!body.address) {
-    sendError(response, 400, "missing device address");
-    return;
-  }
-  updateBluetoothOperation(body.address, {
-    name: body.name || deviceNameForAddress(body.address) || body.address,
-    kind: "disconnect",
-    status: "running",
-    stage: "disconnect",
-    message: "Gerät wird getrennt.",
-    startedAt: new Date().toISOString()
-  });
-  forgetPixelsGatt(body.address);
-  try {
-    const device = await disconnectBluetoothDevice(body.address);
-    updateBluetoothOperation(body.address, {
-      name: device?.name || body.name || body.address,
-      kind: "disconnect",
-      status: "completed",
-      stage: "ready",
-      message: "Gerät ist getrennt."
-    });
-    sendJson(response, 200, { device });
-    setTimeout(() => clearBluetoothOperation(body.address, "disconnect-finished"), 4000);
-  } catch (error) {
-    updateBluetoothOperation(body.address, {
-      kind: "disconnect",
-      status: "failed",
-      stage: "disconnect",
-      message: error instanceof Error ? error.message : String(error)
-    });
-    sendError(response, 400, error instanceof Error ? error.message : String(error));
-  }
-}
-
-async function handlePixelsDevices(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const discover = request.url.includes("discover=1");
-  if (discover) {
-    await scanBluetoothDevices(4);
-  }
-  const devices = await listPixelsDevices(getSelectedPixelsPayload());
-  sendJson(response, 200, { devices });
-}
-
-async function handleSelectedPixels(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  sendJson(response, 200, { selectedDevices: getSelectedPixelsPayload() });
-}
-
-async function handleSelectedPixelsUpdate(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const body = await readJsonBody(request);
-  if (!body.address) {
-    sendError(response, 400, "missing device address");
-    return;
-  }
-
-  if (body.selected) {
-    selectedPixelsDevices.set(body.address, {
-      address: body.address,
-      name: body.name || body.address
-    });
-  } else {
-    selectedPixelsDevices.delete(body.address);
-    pixelsAssignments.delete(body.address);
-    pixelsConfig.sharedSet = normalizeSharedSet(pixelsConfig.sharedSet).map((address) => (address === body.address ? null : address));
-    pixelsConfig.gmSet = normalizeSharedSet(pixelsConfig.gmSet).map((address) => (address === body.address ? null : address));
-    pixelsMonitor.unwatchDevice(body.address);
-  }
-
-  rebuildPendingPixelRolls();
-  await ensureAutomaticPixelsWatches();
-  await persistSelectedPixelsAndBroadcast(body.selected ? "pixels-selected" : "pixels-deselected");
-  if (!body.selected) {
-    await persistPixelsAssignmentsAndBroadcast("pixels-assignment-pruned");
-    await persistPixelsConfigAndBroadcast("pixels-config-pruned");
-  }
-  sendJson(response, 200, { selectedDevices: getSelectedPixelsPayload() });
-}
-
-async function handlePixelsIdentify(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const body = await readJsonBody(request);
-  if (!body.address) {
-    sendError(response, 400, "missing device address");
-    return;
-  }
-  const result = await identifyPixelsDevice(body.address);
-  sendJson(response, 200, { device: result });
-}
-
-async function handlePixelsBlink(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const body = await readJsonBody(request);
-  if (!body.address) {
-    sendError(response, 400, "missing device address");
-    return;
-  }
-  const result = await blinkPixelsDevice(body.address, {
-    color: body.color,
-    count: body.count,
-    duration: body.duration,
-    loopCount: body.loopCount
-  });
-  sendJson(response, 200, { device: result });
-}
-
-async function handlePixelsMonitorState(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  sendJson(response, 200, pixelsMonitor.getSnapshot());
-}
-
-async function handleGroupSheetRoll(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const { source, assignedDice } = getConfiguredGroupSheetDice();
-  if (!source || assignedDice.length < 3) {
-    sendError(response, 400, "kein passendes Pixels-Set für das Gruppencharakterblatt konfiguriert");
-    return;
-  }
-
-  resetPendingGroupSheetRoll();
-  pendingGroupSheetRoll.status = "pending";
-  pendingGroupSheetRoll.source = source;
-  pendingGroupSheetRoll.assignedDice = assignedDice;
-  pendingGroupSheetRoll.createdAt = new Date().toISOString();
-
-  for (const die of assignedDice) {
-    try {
-      await pixelsMonitor.watchDevice(die.address);
-    } catch {
-      // ignore and allow later retries through normal monitor flow
-    }
-  }
-
-  broadcastPixelsEvent("group-sheet-roll", getPendingGroupSheetRollPayload());
-  broadcastPixelsEvent("pixels-status", pixelsMonitor.getSnapshot());
-  sendJson(response, 200, {
-    mode: "pixels",
-    pendingRoll: getPendingGroupSheetRollPayload()
-  });
-}
-
-async function handlePixelsAssignments(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  sendJson(response, 200, { assignments: getAssignmentsPayload() });
-}
-
-async function handlePixelsConfig(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  sendJson(response, 200, { config: getPixelsConfigPayload() });
-}
-
-async function handlePixelsConfigUpdate(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const body = await readJsonBody(request);
-  const nextMode = normalizePixelsMode(body.mode);
-  const previousMode = pixelsConfig.mode;
-  pixelsConfig.mode = nextMode;
-
-  if (nextMode === PIXELS_MODE.SHARED_SET_3) {
-    pixelsAssignments.clear();
-  } else if (previousMode === PIXELS_MODE.SHARED_SET_3 && nextMode !== PIXELS_MODE.SHARED_SET_3) {
-    pixelsConfig.sharedSet = [null, null, null];
-  }
-
-  if (body.sharedSet !== undefined && nextMode === PIXELS_MODE.SHARED_SET_3) {
-    pixelsConfig.sharedSet = normalizeSharedSet(body.sharedSet);
-  }
-  if (body.gmSet !== undefined) {
-    pixelsConfig.gmSet = normalizeSharedSet(body.gmSet);
-  }
-  rebuildPendingPixelRolls();
-  await ensureGroupSheetPixelsWatches();
-  await persistPixelsAssignmentsAndBroadcast("pixels-assignments-reset-for-mode");
-  await persistPixelsConfigAndBroadcast("pixels-config-saved");
-  sendJson(response, 200, { config: getPixelsConfigPayload() });
-}
-
-async function handlePixelsAssignmentUpdate(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const body = await readJsonBody(request);
-  if (!body.address) {
-    sendError(response, 400, "missing device address");
-    return;
-  }
-
-  if (body.characterId == null || body.characterId === "") {
-    pixelsAssignments.delete(body.address);
-  } else {
-    const state = serverState.getState();
-    const character = state.characters.find((entry) => entry.id === body.characterId);
-    if (!character) {
-      sendError(response, 400, "unknown character");
-      return;
-    }
-    const requestedSlot = normalizeAssignmentSlot(body.slot);
-    if (!requestedSlot) {
-      sendError(response, 400, "slot 1-3 required");
-      return;
-    }
-    const slotConflict = Array.from(pixelsAssignments.entries()).find(([address, assignment]) => {
-      if (address === body.address) {
-        return false;
-      }
-      return assignment.characterId === body.characterId && assignment.slot === requestedSlot;
-    });
-    if (slotConflict) {
-      sendError(response, 400, `slot ${requestedSlot} already assigned`);
-      return;
-    }
-    pixelsAssignments.set(body.address, {
-      characterId: body.characterId,
-      slot: requestedSlot
-    });
-  }
-
-  rebuildPendingPixelRolls();
-  await persistPixelsAssignmentsAndBroadcast("pixels-assignment-saved");
-  sendJson(response, 200, { assignments: getAssignmentsPayload() });
-}
-
-async function handlePixelsWatchStart(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const body = await readJsonBody(request);
-  if (!body.address) {
-    sendError(response, 400, "missing device address");
-    return;
-  }
-  const result = await pixelsMonitor.watchDevice(body.address);
-  sendJson(response, 200, result);
-}
-
-async function handlePixelsWatchStop(request, response) {
-  if (!requireGmSession(request, response)) {
-    return;
-  }
-  const body = await readJsonBody(request);
-  if (!body.address) {
-    sendError(response, 400, "missing device address");
-    return;
-  }
-  const result = pixelsMonitor.unwatchDevice(body.address);
-  sendJson(response, 200, result);
-}
-
-async function handlePixelsRollIntegration(event) {
-  if (!event.rollState) {
-    return;
-  }
-
-  if (event.rollState.state === "rolling") {
-    armedPixelsRolls.set(event.address, Date.now());
-    return;
-  }
-
-  const acceptedStates = new Set(["rolled", "onFace", "handling"]);
-  if (!acceptedStates.has(event.rollState.state)) {
-    return;
-  }
-  const faceValue = Number(event.rollState.face);
-  if (!Number.isInteger(faceValue) || faceValue < 1 || faceValue > 6) {
-    return;
-  }
-  const now = Date.now();
-  const armedAt = armedPixelsRolls.get(event.address) || 0;
-  if (!armedAt || now - armedAt > PIXELS_ROLL_ARM_WINDOW_MS) {
-    broadcastPixelsEvent("pixels-roll-ignored", {
-      address: event.address,
-      face: faceValue,
-      reason: "not-armed"
-    });
-    return;
-  }
-
-  if (pendingPixelRolls.size && pendingGroupSheetRoll.status === "pending") {
-    resetPendingGroupSheetRoll();
-    broadcastPixelsEvent("group-sheet-roll", getPendingGroupSheetRollPayload());
-  }
-
-  if (!pendingPixelRolls.size && pendingGroupSheetRoll.status !== "pending") {
-    const { source, assignedDice } = getConfiguredGroupSheetDice();
-    if (source && assignedDice.some((entry) => entry.address === event.address)) {
-      pendingGroupSheetRoll.status = "pending";
-      pendingGroupSheetRoll.source = source;
-      pendingGroupSheetRoll.assignedDice = assignedDice;
-      pendingGroupSheetRoll.results = [];
-      pendingGroupSheetRoll.acceptedAtByAddress = new Map();
-      pendingGroupSheetRoll.createdAt = new Date().toISOString();
-      broadcastPixelsEvent("group-sheet-roll", getPendingGroupSheetRollPayload());
-    }
-  }
-
-  if (!pendingPixelRolls.size && pendingGroupSheetRoll.status === "pending") {
-    const assignedEntry = (pendingGroupSheetRoll.assignedDice || []).find((entry) => entry.address === event.address) || null;
-    if (assignedEntry) {
-      const lastAcceptedAt = pendingGroupSheetRoll.acceptedAtByAddress.get(event.address);
-      if (!lastAcceptedAt || now - lastAcceptedAt >= PIXELS_ROLL_DEBOUNCE_MS) {
-        armedPixelsRolls.delete(event.address);
-        pendingGroupSheetRoll.acceptedAtByAddress.set(event.address, now);
-        if (!pendingGroupSheetRoll.results.some((entry) => entry.slot === assignedEntry.slot)) {
-          pendingGroupSheetRoll.results.push({
-            address: event.address,
-            slot: assignedEntry.slot,
-            value: faceValue
-          });
-          broadcastPixelsEvent("group-sheet-roll", getPendingGroupSheetRollPayload());
-          if (pendingGroupSheetRoll.results.length >= 3) {
-            const faces = pendingGroupSheetRoll.assignedDice
-              .map((entry) => pendingGroupSheetRoll.results.find((result) => result.slot === entry.slot)?.value ?? null)
-              .filter((value) => Number.isInteger(value));
-            if (faces.length >= 3) {
-              const total = faces.slice(0, 3).reduce((sum, value) => sum + value, 0);
-              const source = pendingGroupSheetRoll.source;
-              resetPendingGroupSheetRoll();
-              broadcastPixelsEvent("group-sheet-roll", {
-                status: "resolved",
-                source,
-                faces: faces.slice(0, 3),
-                total
-              });
-            }
-          }
-        }
-      }
-      return;
-    }
-  }
-
-  let pendingRoll = null;
-  let slot = null;
-  const mode = normalizePixelsMode(pixelsConfig.mode);
-  if (mode === PIXELS_MODE.SHARED_SET_3) {
-    const sharedSlot = getSharedSlotForAddress(event.address);
-    if (!sharedSlot) {
-      return;
-    }
-    const nextSharedCharacter = getPixelsCharactersInRosterOrder().find((character) => pendingPixelRolls.has(character.id));
-    if (!nextSharedCharacter) {
-      return;
-    }
-    pendingRoll = pendingPixelRolls.get(nextSharedCharacter.id) ?? null;
-    slot = sharedSlot;
-  } else {
-    const assignment = getAssignedCharacterEntry(event.address);
-    if (!assignment) {
-      return;
-    }
-    pendingRoll = pendingPixelRolls.get(assignment.characterId) ?? null;
-    slot = assignment.slot;
-  }
-
-  if (!pendingRoll) {
-    return;
-  }
-
-  const lastAcceptedAt = pendingRoll.acceptedAtByAddress.get(event.address);
-  if (lastAcceptedAt && now - lastAcceptedAt < PIXELS_ROLL_DEBOUNCE_MS) {
-    broadcastPixelsEvent("pixels-roll-ignored", {
-      characterId: pendingRoll.characterId,
-      address: event.address,
-      face: faceValue,
-      reason: "debounced"
-    });
-    return;
-  }
-  armedPixelsRolls.delete(event.address);
-  pendingRoll.acceptedAtByAddress.set(event.address, now);
-  if (pendingRoll.phase === "main" && pendingRoll.mode === PIXELS_MODE.PC_SET_3) {
-    if (pendingRoll.results.some((entry) => entry.address === event.address)) {
-      broadcastPixelsEvent("pixels-roll-ignored", {
-        characterId: pendingRoll.characterId,
-        address: event.address,
-        face: faceValue,
-        reason: "already-recorded"
-      });
-      return;
-    }
-  }
-  if (pendingRoll.phase === "main" && pendingRoll.mode === PIXELS_MODE.SHARED_SET_3) {
-    if (pendingRoll.results.some((entry) => entry.slot === slot)) {
-      broadcastPixelsEvent("pixels-roll-ignored", {
-        characterId: pendingRoll.characterId,
-        address: event.address,
-        face: faceValue,
-        reason: "slot-already-recorded"
-      });
-      return;
-    }
-  }
-  pendingRoll.results.push({
-    address: event.address,
-    slot,
-    value: faceValue,
-    phase: pendingRoll.phase
-  });
-
-  broadcastPixelsEvent("pixels-roll-progress", {
-    characterId: pendingRoll.characterId,
-    address: event.address,
-    slot,
-    face: faceValue,
-    phase: pendingRoll.phase,
-    collected: pendingRoll.results.map((entry, index) => ({
-      address: entry.address,
-      slot: entry.slot,
-      label: pendingRoll.phase === "crit" ? "Krit-W6" : entry.slot ? `W${entry.slot}` : `W${index + 1}`,
-      value: entry.value
-    })),
-    requiredDice: pendingRoll.requiredDice,
-    assignedDice: pendingRoll.assignedDice
-  });
-
-  if (pendingRoll.results.length < pendingRoll.requiredDice) {
-    return;
-  }
-
-  if (pendingRoll.phase === "main") {
-    let faces = [];
-    if (pendingRoll.mode === PIXELS_MODE.PC_SET_3 || pendingRoll.mode === PIXELS_MODE.SHARED_SET_3) {
-      faces = pendingRoll.assignedDice
-        .map((entry) => pendingRoll.results.find((result) => result.slot === entry.slot)?.value ?? null)
-        .filter((value) => Number.isInteger(value));
-    } else {
-      faces = pendingRoll.results.map((entry) => entry.value).filter((value) => Number.isInteger(value));
-    }
-    if (faces.length < pendingRoll.requiredDice) {
-      return;
-    }
-    const total = faces.slice(0, pendingRoll.requiredDice).reduce((sum, value) => sum + value, 0);
-    if (total === 18) {
-      pendingRoll.mainTotal = total;
-      pendingRoll.mainFaces = faces.slice(0, pendingRoll.requiredDice);
-      pendingRoll.phase = "crit";
-      pendingRoll.requiredDice = 1;
-      pendingRoll.results = [];
-      broadcastPixelsEvent("pixels-roll-progress", {
-        characterId: pendingRoll.characterId,
-        phase: "crit",
-        requiredDice: 1,
-        collected: [],
-        assignedDice: pendingRoll.assignedDice
-      });
-      return;
-    }
-
-    const result = serverState.execute(getGmSession(), {
-      type: "resolve-initiative-roll",
-      characterId: pendingRoll.characterId,
-      total,
-      critBonusRoll: null
-    });
-    pendingPixelRolls.delete(pendingRoll.characterId);
-    rebuildPendingPixelRolls();
-    await saveRuntime();
-    broadcastStateUpdate("pixels-auto-resolve");
-    broadcastPixelsEvent("pixels-roll-resolved", {
-      characterId: pendingRoll.characterId,
-      faces: faces.slice(0, 3),
-      total,
-      critBonusRoll: null
-    });
-    await triggerCriticalLedEffect(pendingRoll.characterId, total);
-    if (normalizePixelsMode(pixelsConfig.mode) === PIXELS_MODE.SHARED_SET_3 && pendingPixelRolls.size) {
-      await triggerWaitLedEffectsForPendingRolls();
-    }
-    broadcastPixelsEvent("pixels-status", pixelsMonitor.getSnapshot());
-    return result;
-  }
-
-  const critBonusRoll = pendingRoll.results[0]?.value ?? null;
-  const total = Number.isFinite(Number(pendingRoll.mainTotal)) ? Number(pendingRoll.mainTotal) : 18;
-  const result = serverState.execute(getGmSession(), {
-    type: "resolve-initiative-roll",
-    characterId: pendingRoll.characterId,
-    total,
-    critBonusRoll
-  });
-  pendingPixelRolls.delete(pendingRoll.characterId);
-  rebuildPendingPixelRolls();
-  await saveRuntime();
-  broadcastStateUpdate("pixels-auto-resolve");
-  broadcastPixelsEvent("pixels-roll-resolved", {
-    characterId: pendingRoll.characterId,
-    faces: Array.isArray(pendingRoll.mainFaces) && pendingRoll.mainFaces.length ? pendingRoll.mainFaces : [18],
-    total,
-    critBonusRoll
-  });
-  await triggerCriticalLedEffect(pendingRoll.characterId, total);
-  if (normalizePixelsMode(pixelsConfig.mode) === PIXELS_MODE.SHARED_SET_3 && pendingPixelRolls.size) {
-    await triggerWaitLedEffectsForPendingRolls();
-  }
-  broadcastPixelsEvent("pixels-status", pixelsMonitor.getSnapshot());
-  return result;
 }
 
 function getContentType(filePath) {
@@ -2649,80 +1197,12 @@ async function handleRequest(request, response) {
     await handleAppReset(request, response);
     return;
   }
-  if (request.method === "POST" && url.pathname === "/api/group-sheet/roll") {
-    await handleGroupSheetRoll(request, response);
-    return;
-  }
   if (request.method === "GET" && url.pathname === "/api/events") {
     await handleEvents(request, response);
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/command") {
     await handleCommand(request, response);
-    return;
-  }
-  if (request.method === "GET" && url.pathname === "/api/bluetooth/devices") {
-    await handleBluetoothDevices(request, response);
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/bluetooth/scan") {
-    await handleBluetoothScan(request, response);
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/bluetooth/connect") {
-    await handleBluetoothConnect(request, response);
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/bluetooth/disconnect") {
-    await handleBluetoothDisconnect(request, response);
-    return;
-  }
-  if (request.method === "GET" && url.pathname === "/api/pixels/devices") {
-    await handlePixelsDevices(request, response);
-    return;
-  }
-  if (request.method === "GET" && url.pathname === "/api/pixels/selected") {
-    await handleSelectedPixels(request, response);
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/pixels/selected") {
-    await handleSelectedPixelsUpdate(request, response);
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/pixels/identify") {
-    await handlePixelsIdentify(request, response);
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/pixels/blink") {
-    await handlePixelsBlink(request, response);
-    return;
-  }
-  if (request.method === "GET" && url.pathname === "/api/pixels/assignments") {
-    await handlePixelsAssignments(request, response);
-    return;
-  }
-  if (request.method === "GET" && url.pathname === "/api/pixels/config") {
-    await handlePixelsConfig(request, response);
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/pixels/config") {
-    await handlePixelsConfigUpdate(request, response);
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/pixels/assignments") {
-    await handlePixelsAssignmentUpdate(request, response);
-    return;
-  }
-  if (request.method === "GET" && url.pathname === "/api/pixels/monitor") {
-    await handlePixelsMonitorState(request, response);
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/pixels/watch/start") {
-    await handlePixelsWatchStart(request, response);
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/pixels/watch/stop") {
-    await handlePixelsWatchStop(request, response);
     return;
   }
   if (request.method === "GET") {
@@ -2739,7 +1219,6 @@ export async function startHttpServer(port = PORT) {
     console.warn("FATEVI_GM_PASSWORD is using the insecure default 'gm'. Set a custom password before non-local use.");
   }
   await saveRuntime();
-  rebuildPendingPixelRolls();
   const httpServer = createServer((request, response) => {
     void handleRequest(request, response).catch((error) => {
       const statusCode =
@@ -2751,8 +1230,6 @@ export async function startHttpServer(port = PORT) {
 
   httpServer.listen(port, HOST, () => {
     console.log(`FateVI Tracker Next listening on http://${HOST}:${port}`);
-    void ensureAutomaticPixelsWatches();
-    void ensureGroupSheetPixelsWatches();
   });
   return httpServer;
 }

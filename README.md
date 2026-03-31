@@ -3,8 +3,8 @@
 Neues, getrenntes Repo für eine serverzentrierte FateVI-Tracker-Architektur.
 
 Ziel:
-- `rules`: reine Spielmechanik ohne UI, Netzwerk oder Bluetooth
-- `server`: autoritativer Kampfzustand, Rollenmodell, Pixels-Integration
+- `rules`: reine Spielmechanik ohne UI oder Netzwerk
+- `server`: autoritativer Kampfzustand und Rollenmodell
 - `client`: UI für Spielleiter und Spieler
 
 ## Struktur
@@ -40,11 +40,6 @@ Für Entwicklung und Betrieb werden lokal folgende Programme benötigt:
 - `npm`, um die Workspace-Abhängigkeiten zu installieren und die Skripte auszuführen
 - `typescript`, lokal über `npm install` im Repo; wird über `npm run build` und `npm run check` genutzt
 
-Zusätzlich für die Bluetooth-/Pixels-Integration unter Linux:
-
-- `bluetoothctl` aus BlueZ für Scan, Pairing, Trust und Connect
-- `busctl` für den Zugriff auf die BlueZ-GATT-Objekte
-
 Zusätzlich für den Bibliotheks-Import/-Export:
 
 - `zip` zum Exportieren des SL-Bibliotheksordners
@@ -71,7 +66,6 @@ http://127.0.0.1:8787
 
 Demo-Login:
 - GM-Passwort: `gm`
-- Spieler: `Aria` oder `Borin`
 
 Das bestehende Repo `FateVI_Tracker` bleibt unverändert.
 
@@ -87,13 +81,3 @@ Die Minimalversion verwendet Server-Sent Events:
 - Serverzustand und Sessions werden in `packages/server/data/runtime.json` gespeichert
 - der Browser speichert das Session-Token in `localStorage`
 - nach Server-Neustart kann der Client die Sitzung automatisch wieder aufnehmen
-
-## Bluetooth
-
-Der Server enthält jetzt eine erste BlueZ-Integration über `bluetoothctl`:
-- Geräte auflisten: `GET /api/bluetooth/devices`
-- Scan starten: `POST /api/bluetooth/scan`
-- Verbinden: `POST /api/bluetooth/connect`
-- Trennen: `POST /api/bluetooth/disconnect`
-
-Diese Verwaltung ist im Browser-Client nur für den Spielleiter sichtbar.

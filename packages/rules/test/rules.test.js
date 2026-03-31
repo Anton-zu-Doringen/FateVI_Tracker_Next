@@ -128,7 +128,7 @@ test("computeDamagePenalty uses the rightmost marked damage box", () => {
 test("start-round creates reminder inputs and initiative inputs for visible non-automatic characters", () => {
   const state = createCombatState([
     createPc("aria", { initiativeRollMode: "manual" }),
-    createPc("borin", { initiativeRollMode: "pixels" }),
+    createPc("borin", { initiativeRollMode: "manual" }),
     createPc("hidden", { hidden: true, initiativeRollMode: "manual" }),
     createPc("npc-auto", { type: "NPC", initiativeRollMode: "automatic" })
   ]);

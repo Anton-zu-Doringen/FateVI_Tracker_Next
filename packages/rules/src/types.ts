@@ -2,7 +2,7 @@ export type Role = "gm" | "player";
 export type CharacterType = "PC" | "NPC";
 export type TurnType = "Main" | "Move" | "Bonus";
 export type CriticalState = "success" | "failure" | null;
-export type InitiativeRollMode = "automatic" | "manual" | "pixels";
+export type InitiativeRollMode = "automatic" | "manual";
 
 export interface TimedEvent {
   id: string;
